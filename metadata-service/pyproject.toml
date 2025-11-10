@@ -6,5 +6,8 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
     "lihil>=0.2.34",
+    "premier>=0.4.10",
+    "pydantic>=2.12.4",
+    "redis>=7.0.1",
     "uvicorn>=0.38.0",
 ]
