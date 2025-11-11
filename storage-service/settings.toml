@@ -1,0 +1,8 @@
+[lihil]
+API_VERSION = "1"
+
+[redis]
+MODE = "cluster"
+HOSTS = ["redis1:6379", "redis2:6379", "redis3:6379"]
+PASSWORD = "p"
+DATABASE = 0

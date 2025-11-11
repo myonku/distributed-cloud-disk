@@ -1,2 +1,22 @@
 [lihil]
 API_VERSION = "1"
+
+[[minio.NODES]]
+HOST = "minio-node1.example.com"
+PORT = 9000
+SECURE = false
+
+[[minio.NODES]]
+HOST = "minio-node2.example.com"
+PORT = 9000
+SECURE = false
+
+[minio]
+ACCESS_KEY = "x"
+SECRET_KEY = "y"
+
+[redis]
+MODE = "cluster"
+HOSTS = ["redis1:6379", "redis2:6379", "redis3:6379"]
+PASSWORD = "p"
+DATABASE = 0

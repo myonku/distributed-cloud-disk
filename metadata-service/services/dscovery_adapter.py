@@ -31,3 +31,4 @@ class DiscoveryAdapter:
         else:
             chosen = random_weighted(insts)
         return chosen.endpoint if chosen else None
+

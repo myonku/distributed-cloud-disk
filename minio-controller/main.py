@@ -5,17 +5,24 @@ from lihil.problems import problem_solver
 
 from config import read_config
 from endpoints.http_errors import InternalError
-from endpoints.minio import minio
+from endpoints.minio import minio_route
+from repositories.minio_client import AsyncMinioClientWrapper
 
 @problem_solver
 def handle_error(req: Request, exc: Literal[500] | InternalError) -> Response:
     return Response(f"Internal Error: {str(exc)}", 500)
 
+minio = AsyncMinioClientWrapper()
 
 async def lifespan(app: Lihil):
     config = read_config("settings.toml", ".env")
 
+    await minio.connect(config)
+    app.graph.register_singleton(minio, AsyncMinioClientWrapper)
+
     yield
+
+    await minio.close()
 
 
 def app_factory() -> Lihil:
@@ -24,7 +31,7 @@ def app_factory() -> Lihil:
     root = Route(
         f"/api/v{app_config.API_VERSION}", deps=[]
     )
-    root.include_subroutes(minio)
+    root.include_subroutes(minio_route)
     root.sub("health").get(lambda: "ok")
 
     lhl = Lihil(root, app_config=app_config, lifespan=lifespan)

@@ -4,6 +4,6 @@ from lihil.plugins.premier import PremierPlugin
 from premier import Throttler
 
 
-minio = Route("minio", deps=[])
+minio_route = Route("minio", deps=[])
 
 plugin = PremierPlugin(throttler=Throttler())

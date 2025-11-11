@@ -17,15 +17,15 @@ class KafkaClient:
     仅负责连接与基础操作，业务层再封装主题/序列化/错误处理。
     """
 
-    def __init__(self, cfg: ProjectConfig) -> None:
-        self._cfg = cfg.kafka if cfg and getattr(cfg, "kafka", None) else None
+    def __init__(self) -> None:
         self._producer: AIOKafkaProducer | None = None
         self._started = False
         self._lock = asyncio.Lock()
         self._start_lock = asyncio.Lock()
 
-    async def start(self) -> None:
+    async def start(self, cfg: ProjectConfig) -> None:
         """启动并连接到 Kafka（会创建并启动 producer）。"""
+        self._cfg = cfg.kafka if cfg and getattr(cfg, "kafka", None) else None
         if not self._cfg:
             raise RuntimeError("Kafka config not provided")
         if self._started:
@@ -78,14 +78,29 @@ class KafkaClient:
 
         说明：value/key 都应为 bytes；上层可以负责 json 编码/压缩等。
         """
-        if not self._started:
-            await self.start()
-        assert self._producer
+        assert self._cfg and self._started and self._producer, "Kafka producer not started"
         try:
             await self._producer.send_and_wait(topic, value, key=key, partition=partition)
         except Exception:
             logger.exception("Kafka produce failed topic=%s partition=%s", topic, partition)
             raise
+    
+    def create_peoducer(self) -> AIOKafkaProducer:
+        """获取已启动的 AIOKafkaProducer 实例，返回后调用方负责 start()/stop()。
+
+        示例：
+            producer = kafka_svc.create_producer()
+            await producer.start()
+            try:
+                await producer.send_and_wait("topic", b"value")
+            finally:
+                await producer.stop()
+        """
+        if not self._cfg:
+            raise RuntimeError("Kafka config not provided")
+        if not self._started or not self._producer:
+            raise RuntimeError("Kafka producer not started")
+        return self._producer
 
     def create_consumer(self, topics: Iterable[str], group_id: str | None = None, **kwargs) -> AIOKafkaConsumer:
         """创建一个 AIOKafkaConsumer 实例，返回后调用方负责 start()/stop()。

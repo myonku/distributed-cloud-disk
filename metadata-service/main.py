@@ -5,11 +5,13 @@ from lihil.problems import problem_solver
 
 from endpoints.http_errors import InternalError
 from repositories.redis_store import RedisManager
+from repositories.kafka_client import KafkaClient
 from config import read_config
 from endpoints.metadata import metadata
 
 
 redis = RedisManager()
+kafka = KafkaClient()
 
 @problem_solver
 def handle_error(req: Request, exc: Literal[500] | InternalError) -> Response:
@@ -20,10 +22,13 @@ async def lifespan(app: Lihil):
     config = read_config("settings.toml", ".env")
 
     await redis.connect(config)
+    await kafka.start(config)
     app.graph.register_singleton(redis, RedisManager)
+    app.graph.register_singleton(kafka, KafkaClient)
 
     yield
 
+    await kafka.stop()
     await redis.disconnect()
 
 

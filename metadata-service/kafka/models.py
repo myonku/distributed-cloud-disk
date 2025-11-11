@@ -1,0 +1,42 @@
+from typing import Any, Literal
+from msgspec import Struct, json
+
+
+# 统一 Envelope（便于演进/审计）
+class EventEnvelope(Struct, frozen=True):
+    event_id: str  # UUID
+    type: str  # "UPLOAD_SESSION_CREATED" / "CHUNK_RECEIVED"
+    version: int  # 1
+    ts: float  # epoch seconds
+    aggregate_type: str  # "upload_session" / "chunk" / "file"
+    aggregate_id: str  # e.g. upload_session_id
+    source: str  # "metadata-service"
+    headers: dict[str, str]
+    payload: dict[str, Any]  # 业务负载（简化：dict；复杂用 msgspec.Struct 嵌套）
+
+
+# 具体事件（可选：更严格的结构，用于构建 payload）
+class UploadSessionCreated(Struct, frozen=True):
+    upload_session_id: str
+    owner_id: str
+    file_name: str
+    size: int
+    chunk_size: int
+    placement_policy: str  # 复杂结构外部 JSON 化为 str 保存
+
+
+class ChunkReceived(Struct, frozen=True):
+    upload_session_id: str
+    chunk_id: str
+    index: int
+    size: int
+    node_id: str
+    checksum: str | None = None
+
+
+def encode_envelope(ev: EventEnvelope) -> bytes:
+    return json.encode(ev)
+
+
+def decode_envelope(data: bytes) -> EventEnvelope:
+    return json.decode(data, type=EventEnvelope)
