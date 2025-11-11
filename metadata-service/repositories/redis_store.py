@@ -1,9 +1,5 @@
-import json
-import time
 from redis.asyncio import Redis, from_url
-from msgspec import json
 
-from models.models import BackendSessionCache, UploadSessionCache
 from config import ProjectConfig
 
 
@@ -55,47 +51,3 @@ class RedisManager:
         if self.redis is None:
             raise RuntimeError("Redis未初始化")
         return self.redis
-
-
-class MetadataBackendSessionService:
-    """元数据后端会话服务"""
-    def __init__(self, redis_manager: RedisManager):
-        self._rm = redis_manager
-        self.prefix = "be:metadata:sess"
-
-    def _key(self, sid: str) -> str:
-        return f"{self.prefix}:{sid}"
-
-    async def set_session(self, sess: BackendSessionCache) -> bool:
-        """设置后端会话"""
-        client = self._rm.get_client()
-        ttl = max(int(sess.expires_at - time.time()), 1)
-        return await client.set(self._key(sess.id), json.encode(sess), ex=ttl)
-
-    async def get_session(self, sid: str) -> BackendSessionCache | None:
-        """获取后端会话"""
-        client = self._rm.get_client()
-        raw = await client.get(self._key(sid))
-        return json.decode(raw, type=BackendSessionCache) if raw else None
-
-
-class UploadSessionService:
-    """上传会话服务"""
-    def __init__(self, redis_manager: RedisManager):
-        self._rm = redis_manager
-        self.prefix = "md:upload"
-
-    def _key(self, uid: str) -> str:
-        return f"{self.prefix}:{uid}"
-
-    async def set_upload(self, us: UploadSessionCache) -> bool:
-        """设置上传会话"""
-        client = self._rm.get_client()
-        ttl = max(int(us.expires_at - time.time()), 1)
-        return await client.set(self._key(us.id), json.encode(us), ex=ttl)
-
-    async def get_upload(self, uid: str) -> UploadSessionCache | None:
-        """获取上传会话"""
-        client = self._rm.get_client()
-        raw = await client.get(self._key(uid))
-        return json.decode(raw, type=UploadSessionCache) if raw else None

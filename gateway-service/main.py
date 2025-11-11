@@ -2,15 +2,11 @@ from typing import Literal
 from lihil import Lihil, Request, Response, Route
 from starlette.middleware.cors import CORSMiddleware
 from lihil.problems import problem_solver
-from lihil import HTTPException
 
 from endpoints.gateway import gateway
+from endpoints.http_errors import InternalError
 from repositories.redis_store import RedisManager
 from config import read_config
-
-class InternalError(HTTPException[str]):
-    "Internal Server Error"
-    __status__ = 500
 
 
 redis = RedisManager()

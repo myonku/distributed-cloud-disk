@@ -2,15 +2,10 @@ from typing import Literal
 from lihil import Lihil, Request, Response, Route
 from starlette.middleware.cors import CORSMiddleware
 from lihil.problems import problem_solver
-from lihil import HTTPException
 
 from config import read_config
+from endpoints.http_errors import InternalError
 from endpoints.minio import minio
-
-
-class InternalError(HTTPException[str]):
-    "Internal Server Error"
-    __status__ = 500
 
 @problem_solver
 def handle_error(req: Request, exc: Literal[500] | InternalError) -> Response:
