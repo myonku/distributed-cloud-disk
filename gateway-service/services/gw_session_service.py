@@ -6,7 +6,7 @@ from msgspec import json
 
 
 class GatewaySessionService:
-    """网关中转会话服务"""
+    """网关会话服务"""
 
     def __init__(self, redis_manager: RedisManager):
         self._rm = redis_manager
@@ -16,7 +16,7 @@ class GatewaySessionService:
         return f"{self.prefix}:{sid}"
 
     async def set_session(self, session: GatewaySession) -> bool:
-        """存储网关中转会话"""
+        """存储网关会话"""
         client = self._rm.get_client()
         # 兼容 datetime 对象
         if isinstance(session.expires_at, datetime):
@@ -29,13 +29,13 @@ class GatewaySessionService:
         )
 
     async def get_session(self, session_id: str) -> GatewaySession | None:
-        """获取网关中转会话"""
+        """获取网关会话"""
         client = self._rm.get_client()
         raw = await client.get(self._key(session_id))
         return json.decode(raw, type=GatewaySession) if raw else None
 
     async def delete_session(self, session_id: str) -> bool:
-        """删除网关中转会话"""
+        """删除网关会话"""
         client = self._rm.get_client()
         return (await client.delete(self._key(session_id))) > 0
 
