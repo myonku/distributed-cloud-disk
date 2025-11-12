@@ -26,10 +26,6 @@ class AsyncMinioClientWrapper:
     - 面向在 async 端点中直接调用，避免线程池包装
     - 提供与同步版等价的能力：确保桶、预签名上传/下载、简单 put/remove（异步）
     - 端点选择：优先使用 config.minio.NODES 的首个节点，否则回退到 HOST/PORT
-
-    连接生命周期：
-    - 初始化阶段不触碰配置与连接
-    - 显式调用 connect(cfg?) 建立连接；调用 close() 关闭连接
     """
 
     # 可由外部读取/设置的配置引用（实例将会覆盖此默认值）
@@ -42,9 +38,7 @@ class AsyncMinioClientWrapper:
         self._sign_default: int = 3600
 
     async def connect(self, cfg: ProjectConfig):
-        """建立与 MinIO 的连接（异步）
-        - 可传入 cfg；若未传入则使用 self.cfg；两者都缺失会报错
-        """
+        """建立与 MinIO 的连接（异步）"""
         self.cfg = cfg
         if cfg is None or cfg.minio is None:
             raise ValueError("MinIO 配置未提供")

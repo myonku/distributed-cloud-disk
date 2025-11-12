@@ -44,7 +44,7 @@ class UploadEventProducer:
             payload=json.decode(json.encode(payload)),  # 转 dict（保持稳定结构）
         )
         key = upload_session_id.encode()
-        prod = self.kc.create_peoducer()
+        prod = self.kc.get_producer()
         md = await prod.send_and_wait(
             TOPIC_UPLOAD_EVENTS,
             value=encode_envelope(env),

@@ -2,8 +2,8 @@ from typing import Any, Literal
 from msgspec import Struct, json
 
 
-# 统一 Envelope（便于演进/审计）
 class EventEnvelope(Struct, frozen=True):
+    """统一事件信封结构，用于所有事件的包装。"""
     event_id: str  # UUID
     type: str  # "UPLOAD_SESSION_CREATED" / "CHUNK_RECEIVED"
     version: int  # 1

@@ -43,3 +43,27 @@ class GatewaySessionService:
         """获取会话剩余存活时间，单位秒"""
         client = self._rm.get_client()
         return await client.ttl(self._key(session_id))
+    
+    async def refresh_session_expiry(self, session_id: str, new_expires_at: float) -> bool:
+        """刷新会话过期时间"""
+        client = self._rm.get_client()
+        ttl_seconds = int(new_expires_at - time.time())
+        ttl = max(ttl_seconds, 1)
+        return await client.expire(self._key(session_id), ttl)
+    
+    async def update_session(
+        self,
+        session_id: str,
+        **updates,
+    ) -> GatewaySession | None:
+        """更新会话的部分字段"""
+        session = await self.get_session(session_id)
+        if not session:
+            return None
+
+        session_dict = session.__dict__.copy()
+        session_dict.update(updates)
+        updated_session = GatewaySession(**session_dict)
+
+        success = await self.set_session(updated_session)
+        return updated_session if success else None

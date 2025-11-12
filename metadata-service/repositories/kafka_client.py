@@ -85,16 +85,15 @@ class KafkaClient:
             logger.exception("Kafka produce failed topic=%s partition=%s", topic, partition)
             raise
     
-    def create_peoducer(self) -> AIOKafkaProducer:
-        """获取已启动的 AIOKafkaProducer 实例，返回后调用方负责 start()/stop()。
+    def get_producer(self) -> AIOKafkaProducer:
+        """获取全局已启动的 AIOKafkaProducer 实例（由 KafkaClient 管理生命周期）。
 
-        示例：
-            producer = kafka_svc.create_producer()
-            await producer.start()
-            try:
-                await producer.send_and_wait("topic", b"value")
-            finally:
-                await producer.stop()
+        注意：
+        - 下游不应调用 start()/stop()；仅调用 send()/send_and_wait() 发送消息即可。
+        - 如需简单发送，优先使用 KafkaClient.produce()，以避免误操作生命周期。
+
+        返回：
+        - AIOKafkaProducer（已启动）
         """
         if not self._cfg:
             raise RuntimeError("Kafka config not provided")

@@ -3,7 +3,7 @@ from msgspec import Struct, json
 
 
 class EventEnvelope(Struct, frozen=True):
-    """事件信封，包装领域事件的元数据和负载。"""
+    """统一事件信封格式"""
     event_id: str
     type: str
     version: int
