@@ -5,7 +5,7 @@ from lihil.problems import problem_solver
 
 from endpoints.http_errors import InternalError
 from repositories.redis_store import RedisManager
-from repositories.kafka_client import KafkaClient
+from kafka.kafka_client import KafkaClient
 from config import read_config
 from endpoints.metadata import metadata
 

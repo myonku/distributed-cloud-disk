@@ -1,7 +1,7 @@
 import asyncio
 from collections.abc import Callable, Awaitable
 
-from repositories.kafka_client import KafkaClient
+from kafka.kafka_client import KafkaClient
 from ..models import EventEnvelope, decode_envelope
 
 TOPIC_USER_EVENTS = "dcd.user.events.v1"
@@ -48,7 +48,7 @@ class UserEventsConsumer:
                             "USER_LOGGED_IN",
                             "USER_LOGGED_OUT",
                             "SESSION_REVOKED",
-                        ):
+                        ): 
                             await handler(env)
                         await c.commit()
                     except Exception as e:

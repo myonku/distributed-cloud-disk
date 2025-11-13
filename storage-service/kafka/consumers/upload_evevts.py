@@ -1,7 +1,7 @@
 import asyncio
 from collections.abc import Callable, Awaitable
 
-from repositories.kafka_client import KafkaClient
+from kafka.kafka_client import KafkaClient
 from ..models import EventEnvelope, decode_envelope
 
 TOPIC_UPLOAD_EVENTS = "dcd.upload.events.v1"

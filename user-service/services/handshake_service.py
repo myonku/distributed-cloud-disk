@@ -38,12 +38,12 @@ class HandshakeService:
     def __init__(
         self,
         ticket_client: TicketClient,
-        temp_dao: TemporaryHandshakeService,
-        session_dao: UserBackendSessionSevice,
+        temp_service: TemporaryHandshakeService,
+        session_service: UserBackendSessionSevice,
     ):
         self.ticket_client = ticket_client
-        self.temp_dao = temp_dao
-        self.session_dao = session_dao
+        self.temp_service = temp_service
+        self.session_service = session_service
 
     async def init(self, ticket_id: str, client_pub_eph_b64: str) -> dict:
         """初始握手"""
@@ -73,7 +73,7 @@ class HandshakeService:
             expires_at=now + max(VERIFY_GRACE, 120),  # 至少 120s TTL
             verify_deadline_at=now + VERIFY_GRACE,
         )
-        await self.temp_dao.set(temp)
+        await self.temp_service.set(temp)
 
         return {
             "backendSessionId": session_id,
@@ -86,11 +86,11 @@ class HandshakeService:
 
     async def confirm(self, backend_session_id: str, verify_hmac_hex: str) -> dict:
         """确认握手"""
-        temp = await self.temp_dao.get(backend_session_id)
+        temp = await self.temp_service.get(backend_session_id)
         if not temp:
             return {"error": "handshake_not_found"}
         if temp.verify_deadline_at < now_epoch():
-            await self.temp_dao.delete(backend_session_id)
+            await self.temp_service.delete(backend_session_id)
             return {"error": "verify_timeout"}
 
         # 以服务器静态私钥 + 客户端临时公钥 + sessionId 再派生
@@ -123,8 +123,8 @@ class HandshakeService:
             expires_at=now + SESSION_LIFETIME,
             **_claims_defaults(ticket=None),
         )
-        await self.session_dao.set_session(sess)
-        await self.temp_dao.delete(temp.id)
+        await self.session_service.set_session(sess)
+        await self.temp_service.delete(temp.id)
         return {
             "status": "ESTABLISHED",
             "fingerprint": fpr,

@@ -1,7 +1,7 @@
 import asyncio
 from collections.abc import Iterable
 import logging
-from typing import Any  # 新增
+from typing import Any
 
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 
