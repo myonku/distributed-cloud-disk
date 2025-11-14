@@ -23,7 +23,7 @@ class RedisConfig(ConfigBase, kw_only=True):
     MODE: Literal["single", "cluster", "sentinel"] = "single"
 
     # 单节点兼容字段
-    DIALECT: str = "redis"
+    DIALECT: str | None = "redis"
     HOST: str | None = None
     PORT: int | None = None
     PASSWORD: str | None = None
@@ -71,6 +71,49 @@ class RedisConfig(ConfigBase, kw_only=True):
         return uris[0] if uris else None
 
 
+class MySQLConfig(ConfigBase, kw_only=True):
+    """MySQL 配置模型（支持单节点或多主/集群形式的 HOSTS）"""
+
+    DIALECT: str | None = "mysql"
+    USER: str | None = None
+    PASSWORD: str | None = None
+    PORT: int | None = 3306
+    HOST: str | None = None
+    # 支持 host 或 host:port 列表，用于集群部署
+    HOSTS: list[str] | None = None
+    DATABASE: str | None = None
+
+    def _format_conn(self, hostpart: str) -> str:
+        """根据 hostpart（可能包含端口）生成与旧格式兼容的连接字符串。"""
+        if ":" in hostpart:
+            host, port = hostpart.split(":", 1)
+        else:
+            host, port = hostpart, str(self.PORT) if self.PORT is not None else ""
+        user = self.USER or ""
+        pwd = self.PASSWORD or ""
+        db = self.DATABASE or ""
+        return f"Server={host};Database={db};User Id={user};Password={pwd};Port={port}"
+
+    def mysql_uris(self) -> list[str]:
+        """返回用于连接的 MySQL 连接字符串列表（单节点返回一个，集群返回多个）。"""
+        if self.HOSTS:
+            return [self._format_conn(h) for h in self.HOSTS]
+
+        if self.HOST:
+            hostpart = (
+                f"{self.HOST}:{self.PORT}" if self.PORT is not None else self.HOST
+            )
+            return [self._format_conn(hostpart)]
+
+        return []
+
+    @property
+    def mysql_uri(self) -> str | None:
+        """返回首个可用的 MySQL 连接字符串（若无则返回 None）。"""
+        uris = self.mysql_uris()
+        return uris[0] if uris else None
+
+
 class KafkaConfig(ConfigBase, kw_only=True):
     """Kafka 配置模型"""
 
@@ -91,6 +134,7 @@ class ProjectConfig(AppConfig, kw_only=True):
     redis: RedisConfig | None = None
     kafka: KafkaConfig | None = None
     etcd: EtcdConfig | None = None
+    mysql: MySQLConfig | None = None
 
 
 def read_config(*config_files: str) -> ProjectConfig:

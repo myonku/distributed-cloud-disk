@@ -14,6 +14,7 @@ from config import ProjectConfig
 
 @dataclass
 class PresignResult:
+    """预签名 URL 结果"""
     url: str
     expires_in: int
     bucket: str
