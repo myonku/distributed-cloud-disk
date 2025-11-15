@@ -2,6 +2,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
 import aiomysql
+from config import ProjectConfig, MySQLConfig
 
 
 class MySQLClient:
@@ -15,14 +16,56 @@ class MySQLClient:
     async def is_connected(self) -> bool:
         return self.pool is not None and not self.pool.closed
 
-    async def connect(self, host: str, port: int, user: str, password: str, db: str):
-        print(
-            f"正在连接MySQL服务: Server={host};Database={db};User Id={user};Password={password};Port={port}"
-        )
-        self.pool = await aiomysql.create_pool(
-            host=host, port=port, user=user, password=password, db=db
-        )
-        print(f"已连接至MySQL数据库: {db}")
+    def _parse_conn_str(self, conn_str: str) -> dict[str, str]:
+        """解析形如 'Server=host;Database=db;User Id=u;Password=p;Port=3306' 的连接字符串。
+        注意：简单分号分割，不支持带分号的密码。
+        """
+        parts = [p for p in conn_str.split(";") if p.strip()]
+        kv: dict[str, str] = {}
+        for p in parts:
+            if "=" not in p:
+                continue
+            k, v = p.split("=", 1)
+            kv[k.strip().lower()] = v.strip()
+        return kv
+
+    async def connect(self, cfg: ProjectConfig | MySQLConfig, **pool_kwargs: Any):
+        """基于配置连接：
+        - 若提供多个 URI（HOSTS），按顺序尝试连接到第一个可用实例。
+        - 若仅单个 URI，则直接连接。
+        - 建议生产中使用 MySQL Router/ProxySQL 暴露单一入口。
+        """
+        mysql_cfg: MySQLConfig | None
+        if isinstance(cfg, ProjectConfig):
+            mysql_cfg = getattr(cfg, "mysql", None)
+        else:
+            mysql_cfg = cfg
+
+        if not mysql_cfg:
+            raise RuntimeError("MySQL config not provided")
+
+        uris = mysql_cfg.mysql_uris()
+        if not uris:
+            raise RuntimeError("MySQL connection strings are empty")
+
+        last_err: Exception | None = None
+        for conn_str in uris:
+            kv = self._parse_conn_str(conn_str)
+            host = kv.get("server") or kv.get("host") or ""
+            db = kv.get("database") or kv.get("db") or ""
+            user = kv.get("user id") or kv.get("uid") or kv.get("user") or ""
+            password = kv.get("password") or kv.get("pwd") or ""
+            port_s = kv.get("port") or ""
+            try:
+                port = int(port_s) if port_s else (mysql_cfg.PORT or 3306)
+                await self.connect(host=host, port=port, user=user, password=password, db=db, **pool_kwargs)
+                return
+            except Exception as e:  # 尝试下一个
+                last_err = e
+                print(f"连接失败，尝试下一个 MySQL 实例: {conn_str} | {e}")
+                continue
+
+        raise ConnectionError(f"所有 MySQL 实例连接失败: {last_err}")
 
     async def disconnect(self):
         print("正在关闭MySQL连接")

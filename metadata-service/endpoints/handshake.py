@@ -5,7 +5,7 @@ from services.handshake_service import HandshakeService
 handshake = Route("handshake", deps=[HandshakeService])
 
 
-@handshake.sub("init").post()
+@handshake.sub("init").post
 async def handshake_init(
     ticket_id: Annotated[str, Param("query")],
     client_pub_eph: Annotated[str, Param("body", decoder=lambda b: b.decode())],
@@ -18,7 +18,7 @@ async def handshake_init(
     return await hs.init(ticket_id=ticket_id, client_pub_eph_b64=client_pub_eph)
 
 
-@handshake.sub("confirm").post()
+@handshake.sub("confirm").post
 async def handshake_confirm(
     backend_session_id: Annotated[str, Param("header", alias="Backend-Session-Id")],
     confirm_data: Annotated[HandShakeConfirmDTO, Param("body")],

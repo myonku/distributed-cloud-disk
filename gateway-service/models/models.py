@@ -15,7 +15,10 @@ class HandshakeTicket(Struct, frozen=True):
 
 
 class GatewaySession(Struct, frozen=True):
-    """网关会话信息"""
+    """
+    网关会话信息，存储在 Redis 中，用于多次请求的身份关联和状态维护。
+    暂定为全局开放引用，用于各服务模块检验请求合法性（借助身份凭证等级信息）。
+    """
 
     id: str  # UUID
     user_id: str | None

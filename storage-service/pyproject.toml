@@ -9,6 +9,7 @@ dependencies = [
     "aiomysql>=0.3.2",
     "cryptography>=46.0.3",
     "lihil>=0.2.34",
+    "minio-async>=1.0.1",
     "premier>=0.4.10",
     "pydantic>=2.12.4",
     "redis>=7.0.1",
