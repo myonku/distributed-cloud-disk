@@ -1,6 +1,7 @@
 from typing import Literal
 
 from lihil.config import AppConfig, ConfigBase, lhl_read_config
+from urllib.parse import quote_plus, urlencode
 
 
 class EtcdConfig(ConfigBase, kw_only=True):
@@ -174,6 +175,155 @@ class SessionMiddlewareConfig(ConfigBase, kw_only=True):
     required_cred_by_method: list[SessionCredByMethod] | None = None
     required_cred_prefix_by_method: list[SessionCredPrefixByMethod] | None = None
 
+    class MongoConfig(ConfigBase, kw_only=True):
+        DIALECT: str = "mongodb"  # or "mongodb+srv"
+        USER: str | None = None
+        PASSWORD: str | None = None
+        PORT: int | None = None
+        HOST: str | None = None
+        # 支持 host 或 host:port 列表，用于集群/副本集部署
+        HOSTS: list[str] | None = None
+        DATABASE: str
+        DIRECTCONNECTION: bool | None = None
+        AUTHSOURCE: str | None = None
+        REPLICA_SET: str | None = None
+        TLS: bool | None = None
+        OPTIONS: dict[str, str] | None = None
+
+        def _host_part(self, host: str) -> str:
+            """根据 dialect 与 port 生成 host 部分（SRV 不带端口）。"""
+            if self.DIALECT == "mongodb+srv":
+                return host
+            if ":" in host:
+                return host
+            if self.PORT is not None:
+                return f"{host}:{self.PORT}"
+            return host
+
+        def mongo_uris(self) -> list[str]:
+            """返回用于连接的 MongoDB URI 列表（通常为单个 URI，集群时 host 部分包含多个 host）。"""
+
+            # 构建 hosts 部分
+            if self.HOSTS:
+                hosts_part = ",".join(self._host_part(h) for h in self.HOSTS)
+            elif self.HOST:
+                hosts_part = self._host_part(self.HOST)
+            else:
+                return []
+
+            # 用户信息
+            userinfo = ""
+            if self.USER:
+                if self.PASSWORD:
+                    userinfo = f"{quote_plus(self.USER)}:{quote_plus(self.PASSWORD)}@"
+                else:
+                    userinfo = f"{quote_plus(self.USER)}@"
+
+            # Query 参数
+            params: dict[str, str] = {}
+            if self.AUTHSOURCE:
+                params["authSource"] = self.AUTHSOURCE
+            if self.REPLICA_SET:
+                params["replicaSet"] = self.REPLICA_SET
+            if self.DIRECTCONNECTION is not None:
+                params["directConnection"] = (
+                    "true" if self.DIRECTCONNECTION else "false"
+                )
+            if self.TLS:
+                # MongoDB URI 既接受 tls=true 也接受 ssl=true，使用 tls=true
+                params["tls"] = "true"
+            if self.OPTIONS:
+                for k, v in self.OPTIONS.items():
+                    params[k] = str(v)
+
+            query = "?" + urlencode(params) if params else ""
+
+            db = self.DATABASE or ""
+            uri = f"{self.DIALECT}://{userinfo}{hosts_part}/{db}{query}"
+            return [uri]
+
+        @property
+        def mongo_uri(self) -> str | None:
+            """返回首个可用的 MongoDB 连接 URI（若无则返回 None）。"""
+            uris = self.mongo_uris()
+            return uris[0] if uris else None
+
+
+class MongoConfig(ConfigBase, kw_only=True):
+    """MongoDB连接配置"""
+    DIALECT: str | None = "mongodb"
+    USER: str | None = None
+    PORT: int | None = None
+    PASSWORD: str | None = None
+    HOST: str | None = None
+    # 支持 host 或 host:port 列表，用于副本集/分片（SRV 模式仅需域名，不带端口）
+    HOSTS: list[str] | None = None
+    DATABASE: str
+    DIRECTCONNECTION: bool | None = None
+    AUTHSOURCE: str | None = None
+    REPLICA_SET: str | None = None
+    TLS: bool | None = None
+    OPTIONS: dict[str, str] | None = None
+
+    def _host_part(self, host: str) -> str:
+        if (self.DIALECT or "mongodb") == "mongodb+srv":
+            return host
+        if ":" in host:
+            return host
+        if self.PORT is not None:
+            return f"{host}:{self.PORT}"
+        return host
+
+    def mongo_uris(self) -> list[str]:
+        """返回用于连接的 MongoDB URI 列表（通常为单个 URI）。
+
+        - 副本集：多个 HOSTS 逗号分隔。
+        - 分片集群：连接 mongos，HOSTS 可为多个 mongos 地址或使用 mongodb+srv。
+        - 单机：使用 HOST(+PORT)。
+        """
+        # hosts 片段
+        if self.HOSTS:
+            hosts_part = ",".join(self._host_part(h) for h in self.HOSTS)
+        elif self.HOST:
+            hosts_part = self._host_part(self.HOST)
+        else:
+            return []
+
+        # 用户信息
+        userinfo = ""
+        if self.USER:
+            if self.PASSWORD:
+                userinfo = f"{quote_plus(self.USER)}:{quote_plus(self.PASSWORD)}@"
+            else:
+                userinfo = f"{quote_plus(self.USER)}@"
+
+        # Query 参数
+        params: dict[str, str] = {}
+        if self.AUTHSOURCE:
+            params["authSource"] = self.AUTHSOURCE
+        if self.REPLICA_SET:
+            params["replicaSet"] = self.REPLICA_SET
+        if self.DIRECTCONNECTION is not None:
+            params["directConnection"] = "true" if self.DIRECTCONNECTION else "false"
+        if self.TLS:
+            params["tls"] = "true"
+        if self.OPTIONS:
+            for k, v in self.OPTIONS.items():
+                params[k] = str(v)
+
+        query = "?" + urlencode(params) if params else ""
+        db = self.DATABASE or ""
+        dialect = self.DIALECT or "mongodb"
+
+        uri = f"{dialect}://{userinfo}{hosts_part}/{db}{query}"
+        return [uri]
+
+    @property
+    def mongo_uri(self) -> str | None:
+        uris = self.mongo_uris()
+        return uris[0] if uris else None
+
+
 class ProjectConfig(AppConfig, kw_only=True):
     """项目配置模型"""
 
@@ -182,6 +332,7 @@ class ProjectConfig(AppConfig, kw_only=True):
     kafka: KafkaConfig | None = None
     etcd: EtcdConfig | None = None
     mysql: MySQLConfig | None = None
+    mongo: MongoConfig | None = None
     session_middleware: SessionMiddlewareConfig | None = None
 
 
@@ -206,7 +357,7 @@ def read_session_middleware_config(
       "required_cred_prefix": [{"prefix":"/admin/","cred":3}],
       "required_cred_by_method": [{"method":"POST","path":"/x","cred":2}],
       "required_cred_prefix_by_method": [{"method":"DELETE","prefix":"/user/","cred":2}]
-    } 
+    }
     若配置不存在则返回空 dict。
     """
     if not sm_cfg:

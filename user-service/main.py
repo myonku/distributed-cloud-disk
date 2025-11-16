@@ -35,9 +35,7 @@ def app_factory() -> Lihil:
     app_config = read_config("settings.toml", ".env")
     sm_cfg = app_config.session_middleware
 
-    root = Route(
-        f"/api/v{app_config.API_VERSION}", deps=[]
-    )
+    root = Route(f"/api/v{app_config.API_VERSION}", deps=[])
     root.include_subroutes(user)
     root.sub("health").get(lambda: "ok")
 
