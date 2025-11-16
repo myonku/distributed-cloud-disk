@@ -15,6 +15,7 @@ class EtcdConfig(ConfigBase, kw_only=True):
     KEY_FILE: str | None = None
     NAMESPACE: str = "/dcd"
 
+
 class RedisConfig(ConfigBase, kw_only=True):
     """Redis配置模型"""
 
@@ -126,15 +127,62 @@ class KafkaConfig(ConfigBase, kw_only=True):
     TOPIC_PREFIX: str | None = None
 
 
+class SessionMiddlewareConfig(ConfigBase, kw_only=True):
+    """Session 中间件访问与响应加密策略配置
+
+    TOML 示例：
+
+    [session_middleware]
+    encrypt_response_paths = ["/secure/data", "/admin/secret"]
+
+    [session_middleware.required_cred_exact]
+    "/user/profile" = 1
+    "/user/settings" = 1
+
+    [[session_middleware.required_cred_prefix]]
+    prefix = "/admin/"
+    cred = 3
+
+    [[session_middleware.required_cred_by_method]]
+    method = "POST"
+    path = "/user/transfer"
+    cred = 2
+
+    [[session_middleware.required_cred_prefix_by_method]]
+    method = "DELETE"
+    prefix = "/user/"
+    cred = 2
+    """
+
+    class SessionCredPrefix(ConfigBase, kw_only=True):
+        prefix: str
+        cred: int
+
+    class SessionCredByMethod(ConfigBase, kw_only=True):
+        method: str
+        path: str
+        cred: int
+
+    class SessionCredPrefixByMethod(ConfigBase, kw_only=True):
+        method: str
+        prefix: str
+        cred: int
+
+    encrypt_response_paths: list[str] | None = None
+    required_cred_exact: dict[str, int] | None = None
+    required_cred_prefix: list[SessionCredPrefix] | None = None
+    required_cred_by_method: list[SessionCredByMethod] | None = None
+    required_cred_prefix_by_method: list[SessionCredPrefixByMethod] | None = None
+
 class ProjectConfig(AppConfig, kw_only=True):
     """项目配置模型"""
 
     API_VERSION: str = "1"
-    # redis 支持单机或集群（请在 redis.MODE 或 redis.HOSTS 中指定）
     redis: RedisConfig | None = None
     kafka: KafkaConfig | None = None
     etcd: EtcdConfig | None = None
     mysql: MySQLConfig | None = None
+    session_middleware: SessionMiddlewareConfig | None = None
 
 
 def read_config(*config_files: str) -> ProjectConfig:
@@ -144,3 +192,42 @@ def read_config(*config_files: str) -> ProjectConfig:
     )
     assert app_config
     return app_config
+
+
+def read_session_middleware_config(
+    sm_cfg: SessionMiddlewareConfig | None,
+) -> dict[str, object]:
+    """读取并转换 SessionMiddleware 配置为中间件可直接 load_access_config 使用的 dict。
+
+    返回结构与 SessionMiddleware.load_access_config 期望一致：
+    {
+      "encrypt_response_paths": [...],
+      "required_cred_exact": {...},
+      "required_cred_prefix": [{"prefix":"/admin/","cred":3}],
+      "required_cred_by_method": [{"method":"POST","path":"/x","cred":2}],
+      "required_cred_prefix_by_method": [{"method":"DELETE","prefix":"/user/","cred":2}]
+    } 
+    若配置不存在则返回空 dict。
+    """
+    if not sm_cfg:
+        return {}
+    out: dict[str, object] = {}
+    if sm_cfg.encrypt_response_paths:
+        out["encrypt_response_paths"] = list(sm_cfg.encrypt_response_paths)
+    if sm_cfg.required_cred_exact:
+        out["required_cred_exact"] = dict(sm_cfg.required_cred_exact)
+    if sm_cfg.required_cred_prefix:
+        out["required_cred_prefix"] = [
+            {"prefix": p.prefix, "cred": p.cred} for p in sm_cfg.required_cred_prefix
+        ]
+    if sm_cfg.required_cred_by_method:
+        out["required_cred_by_method"] = [
+            {"method": r.method, "path": r.path, "cred": r.cred}
+            for r in sm_cfg.required_cred_by_method
+        ]
+    if sm_cfg.required_cred_prefix_by_method:
+        out["required_cred_prefix_by_method"] = [
+            {"method": r.method, "prefix": r.prefix, "cred": r.cred}
+            for r in sm_cfg.required_cred_prefix_by_method
+        ]
+    return out

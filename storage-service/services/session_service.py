@@ -4,8 +4,8 @@ from repositories.redis_store import RedisManager
 from msgspec import json
 
 
-class UserBackendSessionSevice:
-    """用户后端会话数据访问服务"""
+class BackendSessionSevice:
+    """服务后端会话数据访问服务"""
 
     def __init__(self, redis_manager: RedisManager):
         self._rm = redis_manager

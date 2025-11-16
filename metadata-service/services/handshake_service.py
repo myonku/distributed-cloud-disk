@@ -3,7 +3,7 @@ from typing import Any
 
 from models.models import BackendSessionCache, TemporaryHandshake
 from services.secretkey_service import ServerSecretKeyService
-from services.session_service import UserBackendSessionSevice
+from services.session_service import BackendSessionSevice
 from services.temp_hs_service import TemporaryHandshakeService
 from services.ticket_service import TicketClient
 from utils.crypto_utils import (
@@ -39,7 +39,7 @@ class HandshakeService:
         self,
         ticket_client: TicketClient,
         temp_service: TemporaryHandshakeService,
-        session_service: UserBackendSessionSevice,
+        session_service: BackendSessionSevice,
     ):
         self.ticket_client = ticket_client
         self.temp_service = temp_service
