@@ -33,7 +33,7 @@ async def lifespan(app: Lihil):
 
 def app_factory() -> Lihil:
     app_config = read_config("settings.toml", ".env")
-    sm_cfg = app_config.session_middleware
+    sm_cfg = app_config.middleware_cfg
 
     root = Route(f"/api/v{app_config.API_VERSION}", deps=[])
     root.include_subroutes(user)

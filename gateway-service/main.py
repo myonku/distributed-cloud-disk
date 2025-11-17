@@ -8,10 +8,8 @@ from endpoints.http_errors import InternalError
 from kafka.kafka_client import KafkaClient
 from repositories.redis_store import RedisManager
 from config import read_config
+from repositories.factory import redis, kafka
 
-
-redis = RedisManager()
-kafka = KafkaClient()
 
 @problem_solver
 def handle_error(req: Request, exc: Literal[500] | InternalError) -> Response:

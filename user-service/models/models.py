@@ -4,19 +4,6 @@ from datetime import datetime
 from uuid import UUID
 from msgspec import Struct
 
-
-class HandshakeTicket(Struct, frozen=True):
-    """网关分发的会话票据"""
-
-    id: str
-    gateway_session_id: str
-    backend_target: str
-    user_id: str | None
-    nonce: str
-    created_at: float
-    expires_at: float
-
-
 class BackendSessionCache(Struct, frozen=True):
     """后端会话缓存"""
 
@@ -45,7 +32,6 @@ class TemporaryHandshake(Struct, frozen=True):
 
     id: str  # backendSessionId (UUID)
     backend: Literal["user"]  # 当前服务标识
-    user_id: str | None  # 绑定的用户（可能为空）
     client_pub_eph_b64: str  # 客户端临时公钥（Base64 原始 X25519 公钥）
     server_pub_b64: str  # 服务器（静态）公钥（Base64 或指纹字符串）
     server_nonce_b64: str  # 服务端随机数（Base64）

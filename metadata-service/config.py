@@ -128,52 +128,26 @@ class KafkaConfig(ConfigBase, kw_only=True):
     TOPIC_PREFIX: str | None = None
 
 
-class SessionMiddlewareConfig(ConfigBase, kw_only=True):
-    """Session 中间件访问与响应加密策略配置
+class CryptoMiddlewareConfig(ConfigBase, kw_only=True):
+    """中间件加/解密策略配置
 
     TOML 示例：
 
     [session_middleware]
     encrypt_response_paths = ["/secure/data", "/admin/secret"]
+    encrypt_response_prefixes = ["/admin/"]
+    require_request_encryption_paths = ["/secure/data"]
+    require_request_encryption_prefixes = ["/admin/"]
 
-    [session_middleware.required_cred_exact]
-    "/user/profile" = 1
-    "/user/settings" = 1
-
-    [[session_middleware.required_cred_prefix]]
-    prefix = "/admin/"
-    cred = 3
-
-    [[session_middleware.required_cred_by_method]]
-    method = "POST"
-    path = "/user/transfer"
-    cred = 2
-
-    [[session_middleware.required_cred_prefix_by_method]]
-    method = "DELETE"
-    prefix = "/user/"
-    cred = 2
+    说明：
+    - encrypt_response_*: 命中路径/前缀的响应将被 AES-GCM 加密（除非客户端 header 已声明）。
+    - require_request_encryption_*: 命中路径/前缀的请求必须为加密形式，否则 400。
     """
 
-    class SessionCredPrefix(ConfigBase, kw_only=True):
-        prefix: str
-        cred: int
-
-    class SessionCredByMethod(ConfigBase, kw_only=True):
-        method: str
-        path: str
-        cred: int
-
-    class SessionCredPrefixByMethod(ConfigBase, kw_only=True):
-        method: str
-        prefix: str
-        cred: int
-
     encrypt_response_paths: list[str] | None = None
-    required_cred_exact: dict[str, int] | None = None
-    required_cred_prefix: list[SessionCredPrefix] | None = None
-    required_cred_by_method: list[SessionCredByMethod] | None = None
-    required_cred_prefix_by_method: list[SessionCredPrefixByMethod] | None = None
+    encrypt_response_prefixes: list[str] | None = None
+    require_request_encryption_paths: list[str] | None = None
+    require_request_encryption_prefixes: list[str] | None = None
 
 
 class MongoConfig(ConfigBase, kw_only=True):
@@ -261,7 +235,7 @@ class ProjectConfig(AppConfig, kw_only=True):
     etcd: EtcdConfig | None = None
     mysql: MySQLConfig | None = None
     mongo: MongoConfig | None = None
-    session_middleware: SessionMiddlewareConfig | None = None
+    middleware_cfg: CryptoMiddlewareConfig | None = None
 
 
 def read_config(*config_files: str) -> ProjectConfig:
@@ -274,39 +248,37 @@ def read_config(*config_files: str) -> ProjectConfig:
 
 
 def read_session_middleware_config(
-    sm_cfg: SessionMiddlewareConfig | None,
+    middleware_cfg: CryptoMiddlewareConfig | None,
 ) -> dict[str, object]:
-    """读取并转换 SessionMiddleware 配置为中间件可直接 load_access_config 使用的 dict。
+    """读取并转换新的 SessionMiddleware 加/解密策略配置为中间件 load_crypto_config 可使用的 dict。
 
-    返回结构与 SessionMiddleware.load_access_config 期望一致：
+    返回结构：
     {
       "encrypt_response_paths": [...],
-      "required_cred_exact": {...},
-      "required_cred_prefix": [{"prefix":"/admin/","cred":3}],
-      "required_cred_by_method": [{"method":"POST","path":"/x","cred":2}],
-      "required_cred_prefix_by_method": [{"method":"DELETE","prefix":"/user/","cred":2}]
+      "encrypt_response_prefixes": [...],
+      "require_request_encryption_paths": [...],
+      "require_request_encryption_prefixes": [...],
+      "require_signature_on_open": true|false
     }
     若配置不存在则返回空 dict。
+
+    兼容说明：旧版本 cred 授权字段将被忽略。
     """
-    if not sm_cfg:
+    if not middleware_cfg:
         return {}
     out: dict[str, object] = {}
-    if sm_cfg.encrypt_response_paths:
-        out["encrypt_response_paths"] = list(sm_cfg.encrypt_response_paths)
-    if sm_cfg.required_cred_exact:
-        out["required_cred_exact"] = dict(sm_cfg.required_cred_exact)
-    if sm_cfg.required_cred_prefix:
-        out["required_cred_prefix"] = [
-            {"prefix": p.prefix, "cred": p.cred} for p in sm_cfg.required_cred_prefix
-        ]
-    if sm_cfg.required_cred_by_method:
-        out["required_cred_by_method"] = [
-            {"method": r.method, "path": r.path, "cred": r.cred}
-            for r in sm_cfg.required_cred_by_method
-        ]
-    if sm_cfg.required_cred_prefix_by_method:
-        out["required_cred_prefix_by_method"] = [
-            {"method": r.method, "prefix": r.prefix, "cred": r.cred}
-            for r in sm_cfg.required_cred_prefix_by_method
-        ]
+    if middleware_cfg.encrypt_response_paths:
+        out["encrypt_response_paths"] = list(middleware_cfg.encrypt_response_paths)
+    if middleware_cfg.encrypt_response_prefixes:
+        out["encrypt_response_prefixes"] = list(
+            middleware_cfg.encrypt_response_prefixes
+        )
+    if middleware_cfg.require_request_encryption_paths:
+        out["require_request_encryption_paths"] = list(
+            middleware_cfg.require_request_encryption_paths
+        )
+    if middleware_cfg.require_request_encryption_prefixes:
+        out["require_request_encryption_prefixes"] = list(
+            middleware_cfg.require_request_encryption_prefixes
+        )
     return out

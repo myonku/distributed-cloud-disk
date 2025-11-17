@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import Literal
 from urllib.parse import quote_plus, urlencode
 
@@ -213,6 +214,71 @@ class ProjectConfig(AppConfig, kw_only=True):
     etcd: EtcdConfig | None = None
     mysql: MySQLConfig | None = None
     mongo: MongoConfig | None = None
+    # 网关路由/访问控制配置
+    gateway: GatewayRoutingConfig | None = None
+
+
+class GatewayRoutingConfig(ConfigBase, kw_only=True):
+    """网关路由与访问控制配置
+
+    用于网关中间件读取：
+    - ALLOW_ANON_PATHS: 允许匿名访问的路径（无需网关会话或 cred）
+    - HANDSHAKE_PATHS: 允许匿名握手的路径集合（用于端到端密钥协商的初始请求）
+    - REQUIRED_CRED_RULES: 路径前缀 -> 最低 cred 规则，格式例如：
+        ["/api/v1/admin:3", "/api/v1/user/profile:1", "/api/v1/user/2fa:2"]
+      使用最长前缀匹配；若多个匹配取 cred 最大值（保证更严格）。
+    - DEFAULT_STRATEGY: 后端实例选择默认策略（weighted_random/hash_affinity/round_robin 等占位）
+    - BINDING_TTL: 后端绑定的默认存活秒数（过期后重新选择实例）
+    - STICKINESS_KEY: 使用信任快照字段进行粘性路由的键（例如 user_id），为空则不启用哈希粘性
+    - CANARY_TAGS: 当需要访问金丝雀/灰度实例时的标签集合（若为空则忽略标签过滤）
+    """
+
+    ALLOW_ANON_PATHS: list[str] = []
+    HANDSHAKE_PATHS: list[str] = []
+    REQUIRED_CRED_RULES: list[str] = []  # "/prefix:cred" 列表
+    DEFAULT_STRATEGY: str = "weighted_random"
+    BINDING_TTL: int = 120
+    STICKINESS_KEY: str | None = "user_id"
+    CANARY_TAGS: list[str] = []
+
+    def _parse_rules(self) -> list[tuple[str, int]]:
+        parsed: list[tuple[str, int]] = []
+        for item in self.REQUIRED_CRED_RULES:
+            try:
+                path, cred_str = item.rsplit(":", 1)
+                cred = int(cred_str)
+                parsed.append((path.rstrip("/"), cred))
+            except Exception:
+                continue
+        # 排序：前缀长度降序，保证最长优先（仍需取最大 cred）
+        parsed.sort(key=lambda x: len(x[0]), reverse=True)
+        return parsed
+
+    @property
+    def parsed_rules(self) -> list[tuple[str, int]]:
+        # 缓存解析结果（简单惰性，若需更严格可用属性写时重建）
+        if not hasattr(self, "_cached_rules"):
+            setattr(self, "_cached_rules", self._parse_rules())
+        return getattr(self, "_cached_rules")
+
+    def min_cred_for(self, path: str) -> int:
+        """计算路径所需最低 cred；未匹配返回 0 (匿名允许)。
+        多规则命中时取最大 cred（保证更严格）。"""
+        norm = path.rstrip("/") or "/"
+        required = 0
+        for prefix, cred in self.parsed_rules:
+            if norm.startswith(prefix):
+                if cred > required:
+                    required = cred
+        return required
+
+    def is_handshake_path(self, path: str) -> bool:
+        norm = path.rstrip("/") or "/"
+        return any(norm == p.rstrip("/") for p in self.HANDSHAKE_PATHS)
+
+    def is_allow_anon(self, path: str) -> bool:
+        norm = path.rstrip("/") or "/"
+        return any(norm == p.rstrip("/") for p in self.ALLOW_ANON_PATHS)
 
 
 def read_config(*config_files: str) -> ProjectConfig:

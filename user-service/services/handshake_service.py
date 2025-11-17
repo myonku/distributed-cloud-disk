@@ -5,7 +5,6 @@ from models.models import BackendSessionCache, TemporaryHandshake
 from services.secretkey_service import ServerSecretKeyService
 from services.session_service import BackendSessionSevice
 from services.temp_hs_service import TemporaryHandshakeService
-from services.ticket_service import TicketClient
 from utils.crypto_utils import (
     compute_verify_hmac,
     derive_session_keys_static,
@@ -37,21 +36,14 @@ class HandshakeService:
 
     def __init__(
         self,
-        ticket_client: TicketClient,
         temp_service: TemporaryHandshakeService,
         session_service: BackendSessionSevice,
     ):
-        self.ticket_client = ticket_client
         self.temp_service = temp_service
         self.session_service = session_service
 
     async def init(self, ticket_id: str, client_pub_eph_b64: str) -> dict:
         """初始握手"""
-        ticket = await self.ticket_client.pop_ticket(ticket_id)
-        if not ticket:
-            return {"error": "invalid_or_expired_ticket"}
-        if ticket.backend_target != "user":
-            return {"error": "wrong_backend"}
 
         # 服务器静态公钥/私钥（仅公钥用于响应）
         server_pub = ServerSecretKeyService.get_public_key()
@@ -65,7 +57,6 @@ class HandshakeService:
         temp = TemporaryHandshake(
             id=session_id,
             backend="user",
-            user_id=ticket.user_id,
             client_pub_eph_b64=client_pub_eph_b64,
             server_pub_b64=server_pub_b64,
             server_nonce_b64=server_nonce_b64,
@@ -112,7 +103,6 @@ class HandshakeService:
         now = now_epoch()
         sess = BackendSessionCache(
             id=temp.id,
-            user_id=temp.user_id,
             backend="user",
             client_pub_eph_b64=temp.client_pub_eph_b64,
             server_pub_b64=temp.server_pub_b64,

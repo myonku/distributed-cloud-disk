@@ -1,6 +1,5 @@
 from datetime import datetime
 import time
-from models.models import RoutingDecision
 from repositories.redis_store import RedisManager
 from msgspec import json
 
