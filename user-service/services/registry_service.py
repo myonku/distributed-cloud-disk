@@ -22,7 +22,7 @@ class ServiceRegistrar:
         self._keepalive_task: asyncio.Task | None = None
 
     async def register(self, instance: ServiceInstance, ttl: int = 15):
-        """将本服务注册到etcd"""
+        """将服务注册到etcd"""
         assert self.etcd.namespace
         key = build_service_key(self.etcd.namespace, instance.name, instance.id)
         await self.etcd.put_with_lease(key, encode_instance(instance), ttl)
@@ -57,23 +57,24 @@ class LocalRegistry:
         # 初始加载
         assert self.etcd.namespace
         prefix = build_prefix(self.etcd.namespace, service_name)
-        kvs = await self.etcd.get_prefix(prefix)
+        # 使用带 revision 的加载，避免加载与 watch 间的竞态窗口
+        rev, kvs = await self.etcd.get_prefix_with_revision(prefix)
         instances: list[ServiceInstance] = []
-        for k, v in kvs:
+        for _, v in kvs:
             try:
                 instances.append(decode_instance(v))
             except Exception:
                 continue
         self._snapshots[service_name] = ServiceSnapshot(
-            name=service_name, instances=instances, revision=int(time.time())
+            name=service_name, instances=instances, revision=rev
         )
         # 启动 watch
         stop_event = asyncio.Event()
-        task = asyncio.create_task(self._watch_loop(service_name, prefix, stop_event))
+        task = asyncio.create_task(self._watch_loop(service_name, prefix, stop_event, rev))
         self._watch_tasks[service_name] = task
 
     async def _watch_loop(
-        self, service_name: str, prefix: str, stop_event: asyncio.Event
+        self, service_name: str, prefix: str, stop_event: asyncio.Event, base_rev: int
     ):
         """监听指定服务的实例变更并更新本地缓存"""
         async def on_event(key: str, val: bytes | None):
@@ -100,7 +101,9 @@ class LocalRegistry:
                 name=service_name, instances=current, revision=int(time.time())
             )
 
-        await self.etcd.watch_prefix(prefix, on_event, stop_event)
+        # 从 base_rev + 1 开始监听新增/变更
+        start_rev = base_rev + 1 if base_rev > 0 else 0
+        await self.etcd.watch_prefix(prefix, on_event, stop_event, start_revision=start_rev)
 
     def get_instances(self, service_name: str) -> list[ServiceInstance]:
         """获取指定服务的实例列表"""

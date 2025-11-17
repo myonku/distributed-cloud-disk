@@ -2,7 +2,6 @@ import asyncio
 from collections.abc import Iterable
 import logging
 from typing import Any
-
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 
 from config import ProjectConfig
@@ -50,7 +49,9 @@ class KafkaClient:
             if self._cfg.SASL_PASSWORD is not None:
                 kwargs["sasl_plain_password"] = self._cfg.SASL_PASSWORD
 
-            self._producer = AIOKafkaProducer(bootstrap_servers=",".join(bootstrap_list), **kwargs)
+            self._producer = AIOKafkaProducer(
+                bootstrap_servers=",".join(bootstrap_list), **kwargs
+            )
             try:
                 await self._producer.start()
             except Exception:
@@ -73,18 +74,30 @@ class KafkaClient:
                     self._started = False
                     logger.info("Kafka producer stopped")
 
-    async def produce(self, topic: str, value: bytes, key: bytes | None = None, partition: int | None = None) -> None:
+    async def produce(
+        self,
+        topic: str,
+        value: bytes,
+        key: bytes | None = None,
+        partition: int | None = None,
+    ) -> None:
         """发送一条消息到指定 topic（会等待发送完成）。
 
         说明：value/key 都应为 bytes；上层可以负责 json 编码/压缩等。
         """
-        assert self._cfg and self._started and self._producer, "Kafka producer not started"
+        assert (
+            self._cfg and self._started and self._producer
+        ), "Kafka producer not started"
         try:
-            await self._producer.send_and_wait(topic, value, key=key, partition=partition)
+            await self._producer.send_and_wait(
+                topic, value, key=key, partition=partition
+            )
         except Exception:
-            logger.exception("Kafka produce failed topic=%s partition=%s", topic, partition)
+            logger.exception(
+                "Kafka produce failed topic=%s partition=%s", topic, partition
+            )
             raise
-    
+
     def get_producer(self) -> AIOKafkaProducer:
         """获取全局已启动的 AIOKafkaProducer 实例（由 KafkaClient 管理生命周期）。
 
@@ -101,7 +114,9 @@ class KafkaClient:
             raise RuntimeError("Kafka producer not started")
         return self._producer
 
-    def create_consumer(self, topics: Iterable[str], group_id: str | None = None, **kwargs) -> AIOKafkaConsumer:
+    def create_consumer(
+        self, topics: Iterable[str], group_id: str | None = None, **kwargs
+    ) -> AIOKafkaConsumer:
         """创建一个 AIOKafkaConsumer 实例，返回后调用方负责 start()/stop()。
 
         示例：
@@ -120,7 +135,9 @@ class KafkaClient:
             raise ValueError("topics must be non-empty")
 
         # 显式标注 Any，避免被推断为 dict[str, str]
-        consumer_kwargs: dict[str, Any] = {"bootstrap_servers": ",".join(self._cfg.BOOTSTRAP_SERVERS)}
+        consumer_kwargs: dict[str, Any] = {
+            "bootstrap_servers": ",".join(self._cfg.BOOTSTRAP_SERVERS)
+        }
         if group_id:
             consumer_kwargs["group_id"] = group_id
 
@@ -138,11 +155,20 @@ class KafkaClient:
 
         # 将字符串配置转换为正确类型，避免运行时报错
         INT_KEYS = {
-            "fetch_max_wait_ms", "fetch_max_bytes", "fetch_min_bytes",
-            "max_partition_fetch_bytes", "request_timeout_ms", "retry_backoff_ms",
-            "auto_commit_interval_ms", "metadata_max_age_ms", "max_poll_interval_ms",
-            "session_timeout_ms", "heartbeat_interval_ms", "consumer_timeout_ms",
-            "connections_max_idle_ms", "max_poll_records",
+            "fetch_max_wait_ms",
+            "fetch_max_bytes",
+            "fetch_min_bytes",
+            "max_partition_fetch_bytes",
+            "request_timeout_ms",
+            "retry_backoff_ms",
+            "auto_commit_interval_ms",
+            "metadata_max_age_ms",
+            "max_poll_interval_ms",
+            "session_timeout_ms",
+            "heartbeat_interval_ms",
+            "consumer_timeout_ms",
+            "connections_max_idle_ms",
+            "max_poll_records",
         }
         BOOL_KEYS = {"enable_auto_commit", "check_crcs", "exclude_internal_topics"}
 

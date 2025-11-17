@@ -1,5 +1,4 @@
 from typing import Literal
-
 from lihil.config import AppConfig, ConfigBase, lhl_read_config
 from urllib.parse import quote_plus, urlencode
 
