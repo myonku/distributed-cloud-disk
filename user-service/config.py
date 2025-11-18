@@ -127,6 +127,61 @@ class KafkaConfig(ConfigBase, kw_only=True):
     TOPIC_PREFIX: str | None = None
 
 
+class NodeRateLimitConfig(ConfigBase, kw_only=True):
+    """节点侧分布式限流配置（令牌桶）
+
+    维度：匿名 anon、会话 session、用户 user、租户 tenant、设备 device（可选）
+
+    - RATE/CAPACITY: 令牌生成速率（每秒）与桶容量
+    - COST_PER_REQUEST: 每请求消耗的令牌数
+    - ENABLE_*_BUCKET: 是否启用对应维度的桶
+    - BLOCK_ON_EMPTY: True 时无令牌直接拒绝，False 时放行（降级）
+    - FALLBACK_FETCH_SESSION: 当上游未注入 session 时，是否允许按 Session-Id 回退读取
+    """
+
+    # Redis 键前缀，确保与网关/其他节点隔离
+    KEY_PREFIX: str = "rl:user:node1"
+
+    ANON_RATE: float = 2.0
+    ANON_CAPACITY: int = 10
+
+    SESSION_RATE: float = 50.0
+    SESSION_CAPACITY: int = 150
+
+    USER_RATE: float = 80.0
+    USER_CAPACITY: int = 240
+
+    TENANT_RATE: float = 200.0
+    TENANT_CAPACITY: int = 600
+
+    DEVICE_RATE: float = 10.0
+    DEVICE_CAPACITY: int = 30
+
+    COST_PER_REQUEST: int = 1
+
+    ENABLE_USER_BUCKET: bool = True
+    ENABLE_TENANT_BUCKET: bool = True
+    ENABLE_DEVICE_BUCKET: bool = False
+
+    BLOCK_ON_EMPTY: bool = True
+    FALLBACK_FETCH_SESSION: bool = True
+
+    def bucket_params(self, scope: str) -> tuple[float, int]:
+        match scope:
+            case "anon":
+                return self.ANON_RATE, self.ANON_CAPACITY
+            case "session":
+                return self.SESSION_RATE, self.SESSION_CAPACITY
+            case "user":
+                return self.USER_RATE, self.USER_CAPACITY
+            case "tenant":
+                return self.TENANT_RATE, self.TENANT_CAPACITY
+            case "device":
+                return self.DEVICE_RATE, self.DEVICE_CAPACITY
+            case _:
+                return self.SESSION_RATE, self.SESSION_CAPACITY
+
+
 class CryptoMiddlewareConfig(ConfigBase, kw_only=True):
     """中间件加/解密策略配置
 
@@ -234,6 +289,7 @@ class ProjectConfig(AppConfig, kw_only=True):
     mysql: MySQLConfig | None = None
     mongo: MongoConfig | None = None
     middleware_cfg: CryptoMiddlewareConfig | None = None
+    rate_limit: NodeRateLimitConfig | None = None
 
 
 def read_config(*config_files: str) -> ProjectConfig:

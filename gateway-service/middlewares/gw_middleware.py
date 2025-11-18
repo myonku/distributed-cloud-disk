@@ -8,7 +8,7 @@ from starlette.requests import Request
 from services.gw_session_service import GatewaySessionService
 from models.models import GatewaySession, BackendBinding
 from services.registry_service import LocalRegistry
-from config import GatewayRoutingConfig
+from config import GatewayRoutingConfig, ProjectConfig
 from utils.selector_policy import pick_hash_affinity, random_weighted, pick_round_robin
 
 
@@ -80,7 +80,7 @@ class GatewayTrustRoutingMiddleware:
         # 加载会话
         session = None
         if gw_session_id:
-            session = await self._load_session(gw_session_id)
+            session = await self.session_svc.get_session(gw_session_id)
         # 匿名访问校验
         if not session and not self.cfg.is_allow_anon(path):
             await self._json_error(
@@ -107,7 +107,7 @@ class GatewayTrustRoutingMiddleware:
 
         # 更新访问元数据（风控/QPS占位）
         if session:
-            await self._touch_session(session, now)
+            await self.session_svc.update_session(session, now)  # type: ignore[attr-defined]
 
         # 转发
         resp = await self._forward(request, session, binding)
@@ -116,19 +116,10 @@ class GatewayTrustRoutingMiddleware:
     async def _create_anonymous_session(
         self, device_fp: str | None, now: float
     ) -> GatewaySession:
-        # 占位：调用 session_svc 创建并返回会话对象
         return await self.session_svc.create_anonymous(device_fp, now)  # type: ignore[attr-defined]
 
-    async def _load_session(self, session_id: str) -> GatewaySession | None:
-        return await self.session_svc.get_session(session_id)
-
-    async def _touch_session(self, session: GatewaySession, now: float) -> None:
-        await self.session_svc.touch(session.id, now)  # type: ignore[attr-defined]
-
     def _infer_service_name(self, path: str) -> str:
-        # 简单示例：/api/v1/user/login -> user
         parts = [p for p in path.split("/") if p]
-        # 约定：/api/v1/<service>/... -> service
         if len(parts) >= 3 and parts[0] == "api" and parts[1].startswith("v"):
             return parts[2]
         return parts[0] if parts else "user"
@@ -138,7 +129,6 @@ class GatewayTrustRoutingMiddleware:
             return None
         if session.trust and self.cfg.STICKINESS_KEY == "user_id":
             return session.trust.user_id
-        # 可扩展更多字段映射
         return None
 
     async def _ensure_binding(
@@ -149,7 +139,6 @@ class GatewayTrustRoutingMiddleware:
         existing = self._find_existing_binding(session, service_name, now)
         if existing:
             return existing
-        # 重新选择实例
         return await self._pick_binding(
             session=session,
             service_name=service_name,
@@ -177,7 +166,6 @@ class GatewayTrustRoutingMiddleware:
         min_required_cred: int | None = None,
     ) -> BackendBinding | None:
         instances = self.discovery.get_instances(service_name)
-        # 标签过滤（金丝雀占位）
         if self.cfg.CANARY_TAGS:
             insts = [i for i in instances if set(self.cfg.CANARY_TAGS).issubset(i.tags)]
         else:
@@ -188,20 +176,15 @@ class GatewayTrustRoutingMiddleware:
         chosen = None
         if self.route_strategy:
             try:
-                # 自定义策略接收结构化数据占位
                 chosen_dict = self.route_strategy(service_name, [i.__dict__ for i in insts])
                 endpoint = chosen_dict.get("endpoint")
                 inst_id = chosen_dict.get("id")
-                chosen = next(
-                    (i for i in insts if i.id == inst_id or i.endpoint == endpoint),
-                    None,
-                )
+                chosen = next((i for i in insts if i.id == inst_id or i.endpoint == endpoint), None)
                 strategy_used = chosen_dict.get("strategy", strategy_used)
             except Exception:
                 chosen = None
         if not chosen:
             if stickiness_key and strategy_used in {"hash_affinity", "weighted_random"}:
-                # hash 优先
                 chosen = pick_hash_affinity(insts, stickiness_key)
                 strategy_used = "hash_affinity"
             if not chosen:
@@ -215,9 +198,8 @@ class GatewayTrustRoutingMiddleware:
         ttl = self.cfg.BINDING_TTL
         allowed = {"user", "metadata", "storage"}
         backend_literal = service_name if service_name in allowed else "user"
-        backend_value = backend_literal
         binding = BackendBinding(
-            backend=cast(Literal["user", "metadata", "storage"], backend_value),
+            backend=cast(Literal["user", "metadata", "storage"], backend_literal),
             selected_instance_id=chosen.id,
             selected_endpoint=chosen.endpoint,
             strategy_used=strategy_used,
@@ -234,7 +216,6 @@ class GatewayTrustRoutingMiddleware:
     async def _persist_binding(
         self, session: GatewaySession, binding: BackendBinding, now: float
     ) -> None:
-        # 占位更新：替换或追加绑定
         await self.session_svc.upsert_binding(session.id, binding, now)  # type: ignore[attr-defined]
 
     async def _forward(
@@ -244,7 +225,6 @@ class GatewayTrustRoutingMiddleware:
         binding: BackendBinding,
         handshake: bool = False,
     ) -> JSONResponse:
-        # 占位：实际应构造新的下游请求（保留加密体），这里简化回显。
         return JSONResponse(
             {
                 "handshake": handshake,
@@ -260,3 +240,58 @@ class GatewayTrustRoutingMiddleware:
     ) -> None:
         resp = JSONResponse({"error": msg}, status_code=status)
         await resp(scope, receive, send)
+
+
+def gateway_trust_routing_middleware_factory(
+    app: ASGIApp, *, cfg: ProjectConfig | None = None
+) -> ASGIApp:
+    """延迟初始化的网关信任与路由中间件工厂。
+
+    首次调用时：
+    - 确认 Redis 已初始化（用于会话服务）
+    - 读取配置获取 GatewayRoutingConfig
+    若发现依赖不足则返回 503。
+    若需要自定义 route_strategy，可在实例创建后通过属性注入。
+    """
+
+    class LazyGatewayTrustRoutingMiddleware:
+        def __init__(self, app: ASGIApp, cfg: ProjectConfig | None = None):
+            self.app = app
+            self._middleware: GatewayTrustRoutingMiddleware | None = None
+            self._session_svc: GatewaySessionService | None = None
+            self._registry: LocalRegistry | None = None
+            self._config: ProjectConfig | None = cfg
+
+        async def __call__(self, scope: Scope, receive: Receive, send: Send):
+            if self._middleware is None:
+                try:
+                    from repositories.factory import redis  # 全局 RedisManager
+                    if not redis.is_initialized:
+                        resp = JSONResponse({"error": "Service Unavailable"}, status_code=503)
+                        return await resp(scope, receive, send)
+                    # 未传入配置，尝试读取配置
+                    if not self._config:
+                        from config import read_config
+                        self._config = read_config("settings.toml")
+                    # 未找到配置
+                    if not self._config.routing_config:
+                        resp = JSONResponse(
+                            {"error": "config_missing"}, status_code=500
+                        )
+                        return await resp(scope, receive, send)
+                    # 会话服务
+                    self._session_svc = GatewaySessionService(redis)
+                    # TODO: 发现注册服务引入，后续将在repositories.factory导入
+
+                    self._middleware = GatewayTrustRoutingMiddleware(
+                        self.app,
+                        session_svc=self._session_svc,
+                        discovery=self._registry, # type: ignore[arg-type]
+                        routing_cfg=self._config.routing_config,
+                    )
+                except Exception as e:
+                    resp = JSONResponse({"error": "init_failed", "detail": str(e)}, status_code=500)
+                    return await resp(scope, receive, send)
+            await self._middleware(scope, receive, send)
+
+    return LazyGatewayTrustRoutingMiddleware(app, cfg)

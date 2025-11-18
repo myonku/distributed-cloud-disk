@@ -1,4 +1,3 @@
-from __future__ import annotations
 from typing import Literal
 from urllib.parse import quote_plus, urlencode
 
@@ -204,18 +203,43 @@ class MongoConfig(ConfigBase, kw_only=True):
         return uris[0] if uris else None
 
 
-class ProjectConfig(AppConfig, kw_only=True):
-    """项目配置模型"""
+class RateLimitConfig(ConfigBase, kw_only=True):
+    """分布式限流配置（令牌桶参数）
 
-    API_VERSION: str = "1"
-    # redis 支持单机或集群（请在 redis.MODE 或 redis.HOSTS 中指定）
-    redis: RedisConfig | None = None
-    kafka: KafkaConfig | None = None
-    etcd: EtcdConfig | None = None
-    mysql: MySQLConfig | None = None
-    mongo: MongoConfig | None = None
-    # 网关路由/访问控制配置
-    gateway: GatewayRoutingConfig | None = None
+    - ANON_RATE / ANON_CAPACITY: 匿名（无会话）请求速率与桶容量
+    - SESSION_RATE / SESSION_CAPACITY: 基于网关会话 ID 的令牌桶
+    - USER_RATE / USER_CAPACITY: 基于用户 ID 的令牌桶（已登录）
+    - DEVICE_RATE / DEVICE_CAPACITY: 基于设备指纹的桶（助风控）
+    - COST_PER_REQUEST: 每请求消耗的令牌数量（默认 1，可在未来按路径调整）
+    - ENABLE_USER_BUCKET / ENABLE_DEVICE_BUCKET: 控制是否启用对应维度
+    - BLOCK_ON_EMPTY: True 时直接拒绝；False 时可进入排队/降级（此处简单直接拒绝）
+    """
+
+    ANON_RATE: float = 2.0
+    ANON_CAPACITY: int = 10
+    SESSION_RATE: float = 20.0
+    SESSION_CAPACITY: int = 60
+    USER_RATE: float = 30.0
+    USER_CAPACITY: int = 90
+    DEVICE_RATE: float = 10.0
+    DEVICE_CAPACITY: int = 30
+    COST_PER_REQUEST: int = 1
+    ENABLE_USER_BUCKET: bool = True
+    ENABLE_DEVICE_BUCKET: bool = True
+    BLOCK_ON_EMPTY: bool = True
+
+    def bucket_params(self, scope: str) -> tuple[float, int]:
+        match scope:
+            case "anon":
+                return self.ANON_RATE, self.ANON_CAPACITY
+            case "session":
+                return self.SESSION_RATE, self.SESSION_CAPACITY
+            case "user":
+                return self.USER_RATE, self.USER_CAPACITY
+            case "device":
+                return self.DEVICE_RATE, self.DEVICE_CAPACITY
+            case _:
+                return self.SESSION_RATE, self.SESSION_CAPACITY
 
 
 class GatewayRoutingConfig(ConfigBase, kw_only=True):
@@ -279,6 +303,21 @@ class GatewayRoutingConfig(ConfigBase, kw_only=True):
     def is_allow_anon(self, path: str) -> bool:
         norm = path.rstrip("/") or "/"
         return any(norm == p.rstrip("/") for p in self.ALLOW_ANON_PATHS)
+
+
+class ProjectConfig(AppConfig, kw_only=True):
+    """项目配置模型"""
+
+    API_VERSION: str = "1"
+    # redis 支持单机或集群（请在 redis.MODE 或 redis.HOSTS 中指定）
+    redis: RedisConfig | None = None
+    kafka: KafkaConfig | None = None
+    etcd: EtcdConfig | None = None
+    mysql: MySQLConfig | None = None
+    mongo: MongoConfig | None = None
+    # 网关路由/访问控制配置
+    routing_config: GatewayRoutingConfig | None = None
+    rate_limit: RateLimitConfig | None = None
 
 
 def read_config(*config_files: str) -> ProjectConfig:

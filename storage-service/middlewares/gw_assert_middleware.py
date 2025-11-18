@@ -34,13 +34,18 @@ class GatewayAssertMiddleware:
             await self.app(scope, receive, send)
             return
 
-        session_id = request.headers.get(self.session_header)
+        # 优先复用上游中间件已注入的会话/会话ID，减少重复缓存访问
+        session_in_scope = scope.get("session")
+        session_id = scope.get("session_id") or request.headers.get(self.session_header)
         if not session_id:
             response = JSONResponse(status_code=401, content={"error": "Session ID is required"})
             await response(scope, receive, send)
             return
 
-        session = await self.session_service.get_session(session_id)
+        session = session_in_scope
+        # 若获取失败，从缓存查询
+        if session is None:
+            session = await self.session_service.get_session(session_id)
         if not session:
             response = JSONResponse(status_code=401, content={"error": "Session is Invalid!"})
             await response(scope, receive, send)

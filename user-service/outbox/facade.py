@@ -97,7 +97,6 @@ class DomainEventFacade:
             key=trace_id.encode(),
         )
 
-    # ---------------- 用户领域可靠事件 -----------------
     async def emit_user_created(
         self,
         *,
