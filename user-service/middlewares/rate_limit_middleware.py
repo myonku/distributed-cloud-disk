@@ -51,10 +51,6 @@ class NodeRateLimitMiddleware:
     基于节点会话与用户/租户等信息做多维度限流：
     - 会话(session) -> 用户(user) -> 租户(tenant) -> 设备(device) / 匿名(anon)
     任一桶拒绝则整体拒绝（保守策略）。
-
-    依赖上游 `GatewayAssertMiddleware` 注入：
-    - scope["session_id"], scope["session"]: BackendSessionCache
-    若缺失且配置允许，将使用请求头 `Session-Id` 回退从 Redis 加载一次。
     """
 
     def __init__(

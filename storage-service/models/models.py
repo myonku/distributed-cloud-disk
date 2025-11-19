@@ -3,6 +3,25 @@ from pydantic import BaseModel, ConfigDict
 from datetime import datetime
 from uuid import UUID
 from msgspec import Struct
+from enum import Enum
+
+
+class UploadSessionStatus(str, Enum):
+    """上传会话状态枚举
+
+    设计说明：
+    - pending: 已创建（尚未开始分片上传，可能还未创建 MinIO Multipart）
+    - uploading: 正在分片上传（部分分片已提交）
+    - ready_to_merge: 分片全部提交，等待合并（CompleteMultipartUpload）
+    - merged: 已合并完成，文件对象生成成功
+    - aborted: 已主动/系统中止（需要清理 Multipart）
+    """
+
+    PENDING = "pending"
+    UPLOADING = "uploading"
+    READY_TO_MERGE = "ready_to_merge"
+    MERGED = "merged"
+    ABORTED = "aborted"
 
 
 class BackendSessionCache(Struct, frozen=True):
@@ -88,3 +107,125 @@ class ServiceSnapshot(Struct, frozen=True):
     name: str
     instances: list[ServiceInstance]
     revision: int
+
+
+class UploadSession(BaseModel):
+    """大文件上传会话模型（业务层 + Multipart 关联）
+
+    存储建议：MySQL/Postgres（行）或 KV（Redis 仅做短期加速），用于进度/状态查询。
+    和对象存储的 Multipart Upload 通过 upload_id 建立关联。
+    """
+
+    model_config = ConfigDict(from_attributes=True, strict=True)
+    id: UUID  # 业务会话 ID（对外暴露）
+    owner_id: str
+    tenant_id: str | None = None
+    file_name: str
+    content_type: str | None = None
+    total_size: int  # 预计总大小（客户端声明）
+    part_size: int  # 分片大小（用于 expected_parts 计算）
+    expected_parts: int  # 预估分片数（total_size/part_size 向上取整）
+    upload_id: str | None = None  # MinIO Multipart UploadId
+    status: UploadSessionStatus = UploadSessionStatus.PENDING
+    object_key: str | None = None  # 合并后生成的对象 key（按策略）
+    bucket: str | None = None
+    checksum: str | None = None  # 全文件哈希（客户端或合并后计算）
+    created_at: datetime
+    expires_at: datetime  # 会话过期（未完成则可自动 ABORT）
+    merged_at: datetime | None = None
+    aborted_at: datetime | None = None
+    last_part_committed_at: datetime | None = None
+
+
+class UploadPartCommit(BaseModel):
+    """单个分片提交（commit）记录
+
+    幂等：同一 (session_id, part_number) 重复写入不应报错；可用唯一索引。
+    size/etag 可来自客户端回调或 ListParts 读取。
+    """
+
+    model_config = ConfigDict(from_attributes=True, strict=True)
+    session_id: UUID
+    part_number: int
+    etag: str
+    size: int
+    committed_at: datetime
+    checksum: str | None = None  # 可选：分片内容哈希（若客户端上传前已计算）
+
+
+class FileMetadata(BaseModel):
+    """文件最终元数据（合并后持久化）
+
+    与对象存储中的物理对象一一对应。用于检索/权限控制/下载预签名生成。
+    拆分建议：此模型可以放到独立的“元数据服务”中，只保留对象 key 与必要的检索字段。
+    """
+
+    model_config = ConfigDict(from_attributes=True, strict=True)
+    file_id: UUID
+    owner_id: str
+    tenant_id: str | None = None
+    object_key: str
+    bucket: str
+    size: int
+    content_type: str | None = None
+    sha256: str | None = None  # 全文件内容哈希（去重/校验）
+    md5: str | None = None  # 若需要兼容或审计
+    storage_class: str | None = None  # 预留：不同存储层/策略
+    version: int | None = None  # 若支持版本管理
+    created_at: datetime
+    uploaded_at: datetime  # 对象实际完成（merged）时间
+    deleted_at: datetime | None = None
+    tags_json: str | None = None  # 复杂标签 JSON 字符串（可外置单独表）
+
+
+class DownloadIntent(BaseModel):
+    """下载意图记录（审计/统计）
+
+    由生成预签名下载 URL 时创建，真正下载完成可结合访问日志或后续事件补充。
+    """
+
+    model_config = ConfigDict(from_attributes=True, strict=True)
+    intent_id: UUID
+    file_id: UUID
+    user_id: str | None = None
+    tenant_id: str | None = None
+    object_key: str
+    bucket: str
+    generated_at: datetime
+    expires_at: datetime
+    downloaded_at: datetime | None = None  # 确认下载完成时间（通过回调/日志聚合）
+    client_ip: str | None = None
+
+
+class BucketProvision(BaseModel):
+    """桶预配与策略记录
+
+    用于追踪某租户/用户的桶创建与策略变更历史，便于审计与对账。
+    可放入元数据服务，存储无强实时性需求。
+    """
+
+    model_config = ConfigDict(from_attributes=True, strict=True)
+    bucket: str
+    tenant_id: str | None = None
+    user_id: str | None = None
+    versioning_enabled: bool | None = None
+    lifecycle_json: str | None = None  # 生命周期策略（原始 JSON）
+    quota_bytes: int | None = None
+    created_at: datetime
+    updated_at: datetime | None = None
+
+
+class ObjectUsageSnapshot(BaseModel):
+    """对象用量快照（离线或异步统计结果）
+
+    定期任务生成，供快速查询；细粒度实时统计可另设流式方案。
+    """
+
+    model_config = ConfigDict(from_attributes=True, strict=True)
+    snapshot_id: UUID
+    generated_at: datetime
+    tenant_id: str | None = None
+    total_files: int
+    total_bytes: int
+    hot_files: int | None = None  # 访问频繁的文件数量（可选）
+    cold_bytes: int | None = None  # 冷数据字节数（归档层）
