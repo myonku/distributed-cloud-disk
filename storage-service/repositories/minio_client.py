@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from collections.abc import AsyncGenerator, AsyncIterable
 from dataclasses import dataclass
 from typing import BinaryIO, overload

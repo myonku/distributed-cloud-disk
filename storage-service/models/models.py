@@ -197,24 +197,6 @@ class DownloadIntent(BaseModel):
     client_ip: str | None = None
 
 
-class BucketProvision(BaseModel):
-    """桶预配与策略记录
-
-    用于追踪某租户/用户的桶创建与策略变更历史，便于审计与对账。
-    可放入元数据服务，存储无强实时性需求。
-    """
-
-    model_config = ConfigDict(from_attributes=True, strict=True)
-    bucket: str
-    tenant_id: str | None = None
-    user_id: str | None = None
-    versioning_enabled: bool | None = None
-    lifecycle_json: str | None = None  # 生命周期策略（原始 JSON）
-    quota_bytes: int | None = None
-    created_at: datetime
-    updated_at: datetime | None = None
-
-
 class ObjectUsageSnapshot(BaseModel):
     """对象用量快照（离线或异步统计结果）
 
