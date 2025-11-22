@@ -1,5 +1,5 @@
 import time
-from kafka.models import encode_envelope, new_envelope
+from kafka.models import EventEnvelope, encode_envelope, new_envelope
 from outbox.service import OutboxService
 from kafka.publisher import KafkaPublisher
 
@@ -9,6 +9,7 @@ TOPIC_UPLOAD_EVENTS = "dcd.upload.events.v1"
 TOPIC_USER_EVENTS = "dcd.user.events.v1"
 # 非可靠（审计示例）
 TOPIC_AUDIT_EVENTS = "dcd.audit.events.v1"
+TOPIC_DEAD_LETTER_EVENTS = "dcd.deadletter.events.v1"
 
 
 class DomainEventFacade:
@@ -67,7 +68,7 @@ class DomainEventFacade:
             trace_id=trace_id,
             tenant_id=tenant_id,
         )
-    
+
     async def publish_request_audit(
         self,
         *,
@@ -197,6 +198,63 @@ class DomainEventFacade:
             envelope=env,
             topic=TOPIC_USER_EVENTS,
             key=session_id.encode(),
+            tx=tx,
+            trace_id=trace_id,
+            tenant_id=tenant_id,
+        )
+
+    async def emit_dead_letter(
+        self,
+        *,
+        original: EventEnvelope,
+        handler: str,
+        attempt: int,
+        reason: str,
+        error: str | None,
+        partition: int | None,
+        offset: int | None,
+        tenant_id: str | None,
+        trace_id: str | None,
+        max_attempts: int | None,
+        retryable: bool,
+        tx=None,
+    ) -> None:
+        """发布死信事件（可靠，通过 Outbox）
+
+        说明：当某原事件在指定 handler 下达到最大重试或被判定不可重试时写入 DLQ。
+        后续可由专门订阅者进行人工处理/分析/补偿。
+        """
+        now_ts = time.time()
+        payload = {
+            "original_event_id": original.event_id,
+            "original_type": original.type,
+            "original_aggregate_type": original.aggregate_type,
+            "original_aggregate_id": original.aggregate_id,
+            "handler": handler,
+            "attempt": attempt,
+            "reason": reason,
+            "error": error,
+            "partition": partition,
+            "offset": offset,
+            "tenant_id": tenant_id,
+            "trace_id": trace_id,
+            "first_failed_ts": now_ts,  # 可在外部状态跟踪里改为首次失败时间
+            "last_failed_ts": now_ts,
+            "max_attempts": max_attempts,
+            "retryable": retryable,
+            "original_envelope": original.payload,  # 简化：嵌入原 payload（必要时可整 envelope）
+        }
+        env = new_envelope(
+            type="DEAD_LETTER",
+            aggregate_type=original.aggregate_type,
+            aggregate_id=original.aggregate_id,
+            source=self.source,
+            payload=payload,
+        )
+        await self.outbox.save_reliable(
+            envelope=env,
+            topic=TOPIC_DEAD_LETTER_EVENTS,
+            key=original.event_id.encode(),
             tx=tx,
             trace_id=trace_id,
             tenant_id=tenant_id,
