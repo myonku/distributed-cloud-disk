@@ -6,3 +6,64 @@ MODE = "cluster"
 HOSTS = ["redis1:6379", "redis2:6379", "redis3:6379"]
 PASSWORD = "p"
 DATABASE = 0
+
+# ---------------------------------------------------------------------------
+# 示例 Etcd 配置
+[etcd]
+HOSTS = ["etcd1:2379", "etcd2:2379", "etcd3:2379"]
+USERNAME = "etcd_user"
+PASSWORD = "etcd_pass"
+TLS_ENABLED = false
+NAMESPACE = "/dcd"
+
+# 示例 Kafka 配置
+[kafka]
+BOOTSTRAP_SERVERS = ["kafka1:9092", "kafka2:9092"]
+CLIENT_ID = "user-svc"
+TOPIC_PREFIX = "dcd_"
+
+# 示例 MySQL 配置
+[mysql]
+HOST = "mysql"
+PORT = 3306
+USER = "dcd"
+PASSWORD = "pwd"
+DATABASE = "dcd_user"
+
+# 示例 Mongo 配置
+[mongo]
+DIALECT = "mongodb"
+HOSTS = ["mongo1:27017", "mongo2:27017", "mongo3:27017"]
+USER = "mg_user"
+PASSWORD = "mg_pass"
+DATABASE = "user_db"
+AUTHSOURCE = "admin"
+REPLICA_SET = "rs0"
+TLS = false
+
+# 中间件加密策略示例
+[middleware_cfg]
+encrypt_response_paths = ["/secure/data"]
+encrypt_response_prefixes = ["/admin/"]
+require_request_encryption_paths = ["/secure/data"]
+require_request_encryption_prefixes = ["/admin/"]
+
+# 节点侧限流示例
+[rate_limit]
+KEY_PREFIX = "rl:user:node1"
+ANON_RATE = 2.0
+ANON_CAPACITY = 10
+SESSION_RATE = 50.0
+SESSION_CAPACITY = 150
+USER_RATE = 80.0
+USER_CAPACITY = 240
+TENANT_RATE = 200.0
+TENANT_CAPACITY = 600
+DEVICE_RATE = 10.0
+DEVICE_CAPACITY = 30
+COST_PER_REQUEST = 1
+ENABLE_USER_BUCKET = true
+ENABLE_TENANT_BUCKET = true
+ENABLE_DEVICE_BUCKET = false
+BLOCK_ON_EMPTY = true
+FALLBACK_FETCH_SESSION = true

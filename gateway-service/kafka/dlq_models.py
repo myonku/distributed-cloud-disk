@@ -3,6 +3,7 @@ import uuid
 from msgspec import Struct, json
 from .models import EventEnvelope
 
+
 class DeadLetterPayload(Struct, frozen=True):
     """死信事件负载（用于统一处理与检索）
 
@@ -21,6 +22,7 @@ class DeadLetterPayload(Struct, frozen=True):
     - retryable: 是否可继续自动重试（策略判定）
     - original_envelope_json: 原事件 envelope 的 JSON（存档）
     """
+
     original_event_id: str
     original_type: str
     original_aggregate_type: str
@@ -39,11 +41,13 @@ class DeadLetterPayload(Struct, frozen=True):
     retryable: bool
     original_envelope_json: str
 
+
 class DeadLetterEnvelope(Struct, frozen=True):
     """死信事件统一封装（区别于业务事件 envelope）
 
     这里不复用 EventEnvelope 以便与正常事件区分；也可选择直接用 EventEnvelope.type = DEAD_LETTER。
     """
+
     dlq_event_id: str
     version: int
     ts: float
@@ -51,7 +55,16 @@ class DeadLetterEnvelope(Struct, frozen=True):
     headers: dict[str, str]
     payload: DeadLetterPayload
 
-def new_dead_letter_envelope(*, source: str, payload: DeadLetterPayload, headers: dict[str, str] | None = None, version: int = 1, dlq_event_id: str | None = None, ts: float | None = None) -> DeadLetterEnvelope:
+
+def new_dead_letter_envelope(
+    *,
+    source: str,
+    payload: DeadLetterPayload,
+    headers: dict[str, str] | None = None,
+    version: int = 1,
+    dlq_event_id: str | None = None,
+    ts: float | None = None
+) -> DeadLetterEnvelope:
     return DeadLetterEnvelope(
         dlq_event_id=dlq_event_id or str(uuid.uuid4()),
         version=version,
@@ -61,13 +74,31 @@ def new_dead_letter_envelope(*, source: str, payload: DeadLetterPayload, headers
         payload=payload,
     )
 
+
 def encode_dead_letter(ev: DeadLetterEnvelope) -> bytes:
     return json.encode(ev)
+
 
 def decode_dead_letter(data: bytes) -> DeadLetterEnvelope:
     return json.decode(data, type=DeadLetterEnvelope)
 
-def build_dead_letter_payload(*, original: EventEnvelope, handler: str, attempt: int, reason: str, error: str | None, partition: int | None, offset: int | None, tenant_id: str | None, trace_id: str | None, first_failed_ts: float | None, last_failed_ts: float | None, max_attempts: int | None, retryable: bool) -> DeadLetterPayload:
+
+def build_dead_letter_payload(
+    *,
+    original: EventEnvelope,
+    handler: str,
+    attempt: int,
+    reason: str,
+    error: str | None,
+    partition: int | None,
+    offset: int | None,
+    tenant_id: str | None,
+    trace_id: str | None,
+    first_failed_ts: float | None,
+    last_failed_ts: float | None,
+    max_attempts: int | None,
+    retryable: bool
+) -> DeadLetterPayload:
     return DeadLetterPayload(
         original_event_id=original.event_id,
         original_type=original.type,
@@ -85,5 +116,7 @@ def build_dead_letter_payload(*, original: EventEnvelope, handler: str, attempt:
         last_failed_ts=last_failed_ts or time.time(),
         max_attempts=max_attempts,
         retryable=retryable,
-        original_envelope_json=json.decode(json.encode(original)).__repr__(),  # 简单序列化，可替换为更紧凑方案
+        original_envelope_json=json.decode(
+            json.encode(original)
+        ).__repr__(),  # 简单序列化，可替换为更紧凑方案
     )

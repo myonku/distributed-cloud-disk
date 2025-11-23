@@ -6,3 +6,75 @@ MODE = "cluster"
 HOSTS = ["redis1:6379", "redis2:6379", "redis3:6379"]
 PASSWORD = "p"
 DATABASE = 0
+
+# ---------------------------------------------------------------------------
+# 示例 Etcd 配置
+# HOSTS 必填，可配置鉴权与 TLS
+[etcd]
+HOSTS = ["etcd1:2379", "etcd2:2379", "etcd3:2379"]
+USERNAME = "etcd_user"
+PASSWORD = "etcd_pass"
+TLS_ENABLED = false
+NAMESPACE = "/dcd"
+
+# 示例 Kafka 配置（基础 PLAINTEXT）
+[kafka]
+BOOTSTRAP_SERVERS = ["kafka1:9092", "kafka2:9092"]
+CLIENT_ID = "gateway-svc"
+TOPIC_PREFIX = "dcd_"
+# 若需 SASL/SSL：
+# SECURITY_PROTOCOL = "SASL_SSL"
+# SASL_MECHANISM = "SCRAM-SHA-256"
+# SASL_USERNAME = "user"
+# SASL_PASSWORD = "pass"
+
+# 示例 MySQL 配置（单节点）
+[mysql]
+HOST = "mysql"
+PORT = 3306
+USER = "dcd"
+PASSWORD = "pwd"
+DATABASE = "dcd_gateway"
+# 或使用集群：
+# HOSTS = ["mysql1:3306", "mysql2:3306"]
+
+# 示例 Mongo 配置（副本集）
+[mongo]
+DIALECT = "mongodb"
+HOSTS = ["mongo1:27017", "mongo2:27017", "mongo3:27017"]
+USER = "mg_user"
+PASSWORD = "mg_pass"
+DATABASE = "gateway_db"
+AUTHSOURCE = "admin"
+REPLICA_SET = "rs0"
+TLS = false
+# OPTIONS 可选：
+# OPTIONS = { retryWrites = "true" }
+
+# 网关路由访问控制示例
+[routing_config]
+# 允许匿名的完整路径
+ALLOW_ANON_PATHS = ["/health", "/public/info"]
+# 允许匿名握手的路径
+HANDSHAKE_PATHS = ["/handshake/open"]
+# 路径前缀 -> cred 最低等级 ("/api/v1/admin:3" 等)
+REQUIRED_CRED_RULES = ["/api/v1/admin:3", "/api/v1/user/profile:1"]
+DEFAULT_STRATEGY = "weighted_random"
+BINDING_TTL = 120
+STICKINESS_KEY = "user_id"
+CANARY_TAGS = ["canary", "beta"]
+
+# 分布式限流示例（网关维度）
+[rate_limit]
+ANON_RATE = 2.0
+ANON_CAPACITY = 10
+SESSION_RATE = 20.0
+SESSION_CAPACITY = 60
+USER_RATE = 30.0
+USER_CAPACITY = 90
+DEVICE_RATE = 10.0
+DEVICE_CAPACITY = 30
+COST_PER_REQUEST = 1
+ENABLE_USER_BUCKET = true
+ENABLE_DEVICE_BUCKET = true
+BLOCK_ON_EMPTY = true
