@@ -4,6 +4,7 @@ from redis.asyncio import Redis, from_url
 from redis.asyncio.sentinel import Sentinel
 from redis.asyncio.cluster import RedisCluster, ClusterNode
 from config import ProjectConfig
+from utils.circuit_breaker import CircuitBreaker, CircuitOpenError
 
 
 class RedisManager:
@@ -11,8 +12,9 @@ class RedisManager:
 
     def __init__(self):
         # 可能是 Redis、Cluster 或通过 Sentinel 获取的主库连接
-        self.redis: Any | None = None
+        self.redis: Redis | RedisCluster | None = None
         self.is_initialized: bool = False
+        self.circuit = CircuitBreaker("redis_store")
 
     def _parse_hosts(
         self, hosts: Iterable[str], default_port: int | None
@@ -35,9 +37,15 @@ class RedisManager:
         try:
             if self.redis is None:
                 return False
-            # 统一用 PING 验证
-            pong = await self.redis.ping()
+
+            async def _ping() -> Any:
+                assert self.redis is not None
+                return self.redis.ping()
+
+            pong = await self.circuit.call(_ping)
             return bool(pong)
+        except CircuitOpenError:
+            return False
         except Exception:
             return False
 
@@ -143,7 +151,7 @@ class RedisManager:
             self.redis = None
             self.is_initialized = False
 
-    def get_client(self) -> Redis:
+    def get_client(self) -> Redis | RedisCluster:
         """获取 Redis 客户端"""
         if self.redis is None:
             raise RuntimeError("Redis未初始化")

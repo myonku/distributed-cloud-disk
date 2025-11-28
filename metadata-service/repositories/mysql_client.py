@@ -1,8 +1,11 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from typing import Any
+
 import aiomysql
 from config import ProjectConfig, MySQLConfig
+from utils.circuit_breaker import CircuitBreaker, CircuitOpenError
+
 
 
 class MySQLClient:
@@ -12,6 +15,7 @@ class MySQLClient:
     """
     def __init__(self):
         self.pool: aiomysql.Pool | None = None
+        self.circuit = CircuitBreaker("mysql_metadata")
 
     async def is_connected(self) -> bool:
         return self.pool is not None and not self.pool.closed
@@ -104,24 +108,45 @@ class MySQLBaseDAO:
         self.table_name = table_name
 
     async def _execute(self, query: str, params: tuple = ()):
-        try:
+        async def _do_exec() -> None:
             async with self.mysql_db.cursor() as cur:
                 await cur.execute(query, params)
                 conn: Any = cur.connection
                 await conn.commit()
+
+        try:
+            await self.mysql_db.circuit.call(_do_exec)
+        except CircuitOpenError as e:
+            # 熔断打开时的快速失败日志，可按需要接入监控/告警
+            print(f"MySQL circuit open, fast-fail execute: {query} | {params} | {e}")
+            raise
         except Exception as e:
             print(f"MySQL query failed: {query} | {params} | {e}")
             raise
 
     async def _fetch_one(self, query: str, params: tuple = ()) -> dict | None:
-        async with self.mysql_db.cursor() as cur:
-            await cur.execute(query, params)
-            return await cur.fetchone()
+        async def _do_fetch_one() -> dict | None:
+            async with self.mysql_db.cursor() as cur:
+                await cur.execute(query, params)
+                return await cur.fetchone()
+
+        try:
+            return await self.mysql_db.circuit.call(_do_fetch_one)
+        except CircuitOpenError as e:
+            print(f"MySQL circuit open, fast-fail fetch_one: {query} | {params} | {e}")
+            raise
 
     async def _fetch_all(self, query: str, params: tuple = ()) -> list[dict]:
-        async with self.mysql_db.cursor() as cur:
-            await cur.execute(query, params)
-            return await cur.fetchall()
+        async def _do_fetch_all() -> list[dict]:
+            async with self.mysql_db.cursor() as cur:
+                await cur.execute(query, params)
+                return await cur.fetchall()
+
+        try:
+            return await self.mysql_db.circuit.call(_do_fetch_all)
+        except CircuitOpenError as e:
+            print(f"MySQL circuit open, fast-fail fetch_all: {query} | {params} | {e}")
+            raise
 
     async def get(self, id: str) -> dict | None:
         """根据id查询单条数据"""

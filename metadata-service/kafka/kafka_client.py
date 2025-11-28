@@ -6,6 +6,7 @@ from typing import Any
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 
 from config import ProjectConfig
+from utils.circuit_breaker import CircuitBreaker, CircuitOpenError
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,8 @@ class KafkaClient:
         self._started = False
         self._lock = asyncio.Lock()
         self._start_lock = asyncio.Lock()
+        # 针对 Kafka 生产发送维护一个熔断器
+        self._produce_circuit = CircuitBreaker("kafka_producer")
 
     async def start(self, cfg: ProjectConfig) -> None:
         """启动并连接到 Kafka（会创建并启动 producer）。"""
@@ -79,8 +82,22 @@ class KafkaClient:
         说明：value/key 都应为 bytes；上层可以负责 json 编码/压缩等。
         """
         assert self._cfg and self._started and self._producer, "Kafka producer not started"
-        try:
+
+        async def _do_produce() -> None:
+            assert self._producer is not None
             await self._producer.send_and_wait(topic, value, key=key, partition=partition)
+
+        try:
+            await self._produce_circuit.call(_do_produce)
+        except CircuitOpenError as e:
+            # 熔断打开时快速失败，避免持续压垮 Kafka 集群
+            logger.warning(
+                "Kafka produce circuit open, fast-fail topic=%s partition=%s err=%s",
+                topic,
+                partition,
+                e,
+            )
+            raise
         except Exception:
             logger.exception("Kafka produce failed topic=%s partition=%s", topic, partition)
             raise

@@ -1,5 +1,6 @@
 from aiokafka.structs import RecordMetadata
 from kafka.kafka_client import KafkaClient
+from utils.circuit_breaker import CircuitBreaker, CircuitOpenError
 from .models import EventEnvelope
 from .dlq_models import (
     build_dead_letter_payload,
@@ -24,6 +25,7 @@ class DeadLetterPublisher:
         self._kc = kc
         self._topic = topic
         self._source = source
+        self._circuit = CircuitBreaker("kafka_deadletter_publisher")
 
     async def publish_dead_letter(
         self,
@@ -57,11 +59,14 @@ class DeadLetterPublisher:
             retryable=retryable,
         )
         envelope = new_dead_letter_envelope(source=self._source, payload=payload, headers=headers)
-        prod = self._kc.get_producer()
-        md = await prod.send_and_wait(
-            self._topic,
-            key=payload.original_event_id.encode(),
-            value=encode_dead_letter(envelope),
-            headers=[(k, v.encode()) for k, v in (headers or {}).items()],
-        )
-        return md
+        async def _do_publish() -> RecordMetadata:
+            prod = self._kc.get_producer()
+            md = await prod.send_and_wait(
+                self._topic,
+                key=payload.original_event_id.encode(),
+                value=encode_dead_letter(envelope),
+                headers=[(k, v.encode()) for k, v in (headers or {}).items()],
+            )
+            return md
+
+        return await self._circuit.call(_do_publish)

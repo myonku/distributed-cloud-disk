@@ -2,8 +2,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from models.audit_models import RequestAudit, SecurityAudit
-from repositories.mongo_client import MongoDBClient
-
+from repositories.mongo_client import MongoDBClient, MongoBaseDAO
 
 class AuditService:
     """审计服务：提供请求与安全事件的写入接口（非强一致）。
@@ -14,6 +13,8 @@ class AuditService:
         if not mongo_client.is_initialized:
             raise RuntimeError("MongoClient 未初始化")
         self.mongo = mongo_client
+        self.request_audit_dao = MongoBaseDAO[RequestAudit](RequestAudit)
+        self.security_audit_dao = MongoBaseDAO[SecurityAudit](SecurityAudit)
 
     async def log_request(
         self,
@@ -49,7 +50,7 @@ class AuditService:
             error=error,
             extra=extra,
         )
-        return await doc.insert()
+        return await self.request_audit_dao.create(doc)
 
     async def log_security(
         self,
@@ -75,4 +76,4 @@ class AuditService:
             detail=detail,
             severity=severity,
         )
-        return await doc.insert()
+        return await self.security_audit_dao.create(doc)

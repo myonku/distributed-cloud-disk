@@ -1,6 +1,6 @@
 from collections.abc import AsyncGenerator, AsyncIterable
 from dataclasses import dataclass
-from typing import BinaryIO, overload
+from typing import BinaryIO
 import asyncio
 from datetime import timedelta
 
@@ -8,6 +8,7 @@ from minio import Minio
 from minio.error import S3Error
 
 from config import ProjectConfig
+from utils.circuit_breaker import CircuitBreaker, CircuitOpenError
 
 
 @dataclass
@@ -35,6 +36,8 @@ class AsyncMinioClientWrapper:
         self._client: Minio | None = None
         self._default_bucket: str = ""
         self._sign_default: int = 3600
+        # 针对 MinIO 操作维护一个进程内熔断器
+        self._circuit = CircuitBreaker("minio_client")
 
     async def connect(self, cfg: ProjectConfig):
         """建立与 MinIO 的连接（异步）"""
@@ -101,9 +104,20 @@ class AsyncMinioClientWrapper:
             raise ValueError("Bucket name required")
         try:
             client = self.client
-            if not await client.bucket_exists(bucket):
-                await client.make_bucket(bucket)
+
+            async def _do_bucket_exists() -> bool:
+                return await client.bucket_exists(bucket)
+
+            exists = await self._circuit.call(_do_bucket_exists)
+            if not exists:
+
+                async def _do_make_bucket() -> None:
+                    await client.make_bucket(bucket)
+
+                await self._circuit.call(_do_make_bucket)
             return True
+        except CircuitOpenError:
+            raise
         except S3Error as e:
             raise Exception(f"Ensure bucket '{bucket}' failed: {e}") from e
 
@@ -120,11 +134,18 @@ class AsyncMinioClientWrapper:
             raise ValueError("Bucket name required")
         expires = int(expires_seconds or self._sign_default)
         client = self.client
-        url = await client.presigned_put_object(
-            bucket_name=bucket,
-            object_name=object_key,
-            expires=timedelta(seconds=expires),
-        )
+
+        async def _do_presign_put() -> str:
+            return await client.presigned_put_object(
+                bucket_name=bucket,
+                object_name=object_key,
+                expires=timedelta(seconds=expires),
+            )
+
+        try:
+            url = await self._circuit.call(_do_presign_put)
+        except CircuitOpenError:
+            raise
         return PresignResult(
             url=url, expires_in=expires, bucket=bucket, object_key=object_key
         )
@@ -142,12 +163,19 @@ class AsyncMinioClientWrapper:
             raise ValueError("Bucket name required")
         expires = int(expires_seconds or self._sign_default)
         client = self.client
-        url = await client.presigned_get_object(
-            bucket_name=bucket,
-            object_name=object_key,
-            expires=timedelta(seconds=expires),
-            response_headers=params,
-        )
+
+        async def _do_presign_get() -> str:
+            return await client.presigned_get_object(
+                bucket_name=bucket,
+                object_name=object_key,
+                expires=timedelta(seconds=expires),
+                response_headers=params,
+            )
+
+        try:
+            url = await self._circuit.call(_do_presign_get)
+        except CircuitOpenError:
+            raise
         return PresignResult(
             url=url, expires_in=expires, bucket=bucket, object_key=object_key
         )
@@ -201,13 +229,19 @@ class AsyncMinioClientWrapper:
             source = _gen_from_binaryio()
 
         client = self.client
-        result = await client.put_object(
-            bucket_name=bucket,
-            object_name=object_key,
-            source=source,
-            length=length,
-            content_type=content_type or "application/octet-stream",
-        )
+        async def _do_put_object():
+            return await client.put_object(
+                bucket_name=bucket,
+                object_name=object_key,
+                source=source,
+                length=length,
+                content_type=content_type or "application/octet-stream",
+            )
+
+        try:
+            result = await self._circuit.call(_do_put_object)
+        except CircuitOpenError:
+            raise
         return result.etag
 
     async def remove_object(self, object_key: str, bucket: str | None = None) -> None:
@@ -216,4 +250,11 @@ class AsyncMinioClientWrapper:
         if not bucket:
             raise ValueError("Bucket name required")
         client = self.client
-        await client.remove_object(bucket_name=bucket, object_name=object_key)
+
+        async def _do_remove_object() -> None:
+            await client.remove_object(bucket_name=bucket, object_name=object_key)
+
+        try:
+            await self._circuit.call(_do_remove_object)
+        except CircuitOpenError:
+            raise

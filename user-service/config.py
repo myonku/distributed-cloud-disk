@@ -127,6 +127,19 @@ class KafkaConfig(ConfigBase, kw_only=True):
     TOPIC_PREFIX: str | None = None
 
 
+class CircuitBreakerConfig:
+    """熔断器配置
+
+    - failure_threshold: 连续失败多少次后打开熔断
+    - recovery_timeout: 进入 OPEN 后多长时间允许半开探测（秒）
+    - half_open_max_calls: HALF_OPEN 状态下允许并发的探测调用数
+    """
+
+    failure_threshold: int = 5
+    recovery_timeout: float = 10.0
+    half_open_max_calls: int = 1
+
+
 class NodeRateLimitConfig(ConfigBase, kw_only=True):
     """节点侧分布式限流配置（令牌桶）
 

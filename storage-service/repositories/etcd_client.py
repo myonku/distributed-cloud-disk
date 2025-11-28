@@ -7,6 +7,7 @@ import grpc
 from msgspec import json
 
 from config import ProjectConfig
+from utils.circuit_breaker import CircuitBreaker, CircuitOpenError
 from models.models import ServiceInstance
 from etcd3 import etcdrpc as _etcdrpc
 
@@ -42,6 +43,10 @@ class EtcdAsyncClient:
     依赖: grpcio, etcd3 (提供 etcdrpc 代码)。
     后续可扩展: 重连/错误分类/metrics/compaction 恢复。
     """
+
+    def __init__(self) -> None:
+        # 针对 Etcd 的 RPC 维护一个熔断器
+        self._circuit = CircuitBreaker("etcd_client")
 
     async def connect(self, cfg: ProjectConfig):
         """建立 gRPC 连接并初始化 stubs。"""
@@ -94,7 +99,17 @@ class EtcdAsyncClient:
         if self._lease_id is not None:
             return self._lease_id
         assert self._lease_stub, "Lease stub 未初始化"
-        resp = await self._lease_stub.LeaseGrant(etcdrpc.LeaseGrantRequest(TTL=ttl))
+
+        async def _do_grant() -> Any:
+            assert self._lease_stub
+            return await self._lease_stub.LeaseGrant(etcdrpc.LeaseGrantRequest(TTL=ttl))
+
+        try:
+            resp = await self._circuit.call(_do_grant)
+        except CircuitOpenError as e:
+            # 熔断打开时直接抛出，调用方可决定是否降级
+            raise e
+
         self._lease_id = resp.ID
         assert self._lease_id is not None
         return self._lease_id
@@ -103,9 +118,14 @@ class EtcdAsyncClient:
         """写入 key 并绑定租约（如不存在则创建新租约）。"""
         assert self._kv_stub, "KV stub 未初始化"
         lease_id = await self._grant_or_reuse_lease(ttl)
-        await self._kv_stub.Put(
-            etcdrpc.PutRequest(key=key.encode(), value=value_bytes, lease=lease_id)
-        )
+
+        async def _do_put() -> Any:
+            assert self._kv_stub
+            return await self._kv_stub.Put(
+                etcdrpc.PutRequest(key=key.encode(), value=value_bytes, lease=lease_id)
+            )
+
+        await self._circuit.call(_do_put)
 
     async def keepalive_forever(self, ttl: int, stop_event: asyncio.Event):
         """保持租约存活（流式 keepalive）。"""
@@ -131,16 +151,25 @@ class EtcdAsyncClient:
     async def delete(self, key: str):
         """删除指定 key。"""
         assert self._kv_stub, "KV stub 未初始化"
+        async def _do_del() -> Any:
+            assert self._kv_stub
+            return await self._kv_stub.DeleteRange(
+                etcdrpc.DeleteRangeRequest(key=key.encode())
+            )
 
-        await self._kv_stub.DeleteRange(etcdrpc.DeleteRangeRequest(key=key.encode()))
+        await self._circuit.call(_do_del)
 
     async def get_prefix(self, prefix: str) -> list[tuple[str, bytes]]:
         """列出前缀下所有 KV。"""
         assert self._kv_stub, "KV stub 未初始化"
         range_end = _prefix_range_end(prefix)
-        resp = await self._kv_stub.Range(
-            etcdrpc.RangeRequest(key=prefix.encode(), range_end=range_end)
-        )
+        async def _do_range() -> Any:
+            assert self._kv_stub
+            return await self._kv_stub.Range(
+                etcdrpc.RangeRequest(key=prefix.encode(), range_end=range_end)
+            )
+
+        resp = await self._circuit.call(_do_range)
         out: list[tuple[str, bytes]] = []
         for kv in resp.kvs:
             try:
@@ -155,9 +184,13 @@ class EtcdAsyncClient:
         """返回 (etcd_revision, [(key,value_bytes)...])，用于避免加载与 watch 之间的竞态。"""
         assert self._kv_stub, "KV stub 未初始化"
         range_end = _prefix_range_end(prefix)
-        resp = await self._kv_stub.Range(
-            etcdrpc.RangeRequest(key=prefix.encode(), range_end=range_end)
-        )
+        async def _do_range() -> Any:
+            assert self._kv_stub
+            return await self._kv_stub.Range(
+                etcdrpc.RangeRequest(key=prefix.encode(), range_end=range_end)
+            )
+
+        resp = await self._circuit.call(_do_range)
         header = getattr(resp, "header", None)
         rev = int(getattr(header, "revision", 0) or 0)
         out: list[tuple[str, bytes]] = []
